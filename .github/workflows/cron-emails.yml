@@ -1,4 +1,4 @@
-name: habits cron email reporting
+name: tasks cron email reporting
 
 on:
   schedule:

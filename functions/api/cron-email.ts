@@ -159,7 +159,7 @@ function wrapEmailHtml(contentHtml: string, title: string): string {
               <tr>
                 <td>
                   <h1 style="font-size: 26px; font-weight: 800; color: #ffffff; margin: 0 0 4px 0;">good morning, pratham.</h1>
-                  <span style="font-size: 11px; color: #888888;">[ habits.sh // automated statistics report ]</span>
+                  <span style="font-size: 11px; color: #888888;">[ tasks.sh // automated statistics report ]</span>
                 </td>
               </tr>
             </table>
@@ -247,7 +247,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           ? `<span style="color: #ff5555; font-weight: bold; margin-right: 6px;">[■]</span>`
           : `<span style="color: #666666; margin-right: 6px;">[ ]</span>`;
 
-      subject = `habits: daily report [ ${dateKey} ]`;
+      subject = `tasks: daily report [ ${dateKey} ]`;
       emailHtml = wrapEmailHtml(`
         <h3 style="font-size: 14px; font-weight: bold; color: #ffffff; border-bottom: 1px dotted #ff5555; padding-bottom: 6px; margin: 0 0 16px 0;">[ report // daily checklist // ${dateKey} ]</h3>
         
@@ -296,7 +296,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
 
-      subject = `habits: weekly log [ ${weekKey} ]`;
+      subject = `tasks: weekly log [ ${weekKey} ]`;
       emailHtml = wrapEmailHtml(`
         <h3 style="font-size: 14px; font-weight: bold; color: #ffffff; border-bottom: 1px dotted #ff5555; padding-bottom: 6px; margin: 0 0 16px 0;">[ report // weekly logs // ${weekRange} ]</h3>
         
@@ -364,7 +364,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
 
-      subject = `habits: monthly log [ ${monthKey} ]`;
+      subject = `tasks: monthly log [ ${monthKey} ]`;
       emailHtml = wrapEmailHtml(`
         <h3 style="font-size: 14px; font-weight: bold; color: #ffffff; border-bottom: 1px dotted #ff5555; padding-bottom: 6px; margin: 0 0 16px 0;">[ report // monthly milestones // ${printableMonth} ]</h3>
         
@@ -399,7 +399,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'habits <onboarding@resend.dev>',
+        from: 'tasks <onboarding@resend.dev>',
         to: ['anvekarprathamesh13@gmail.com'],
         subject: subject,
         html: emailHtml,

@@ -1,0 +1,63 @@
+name: habits cron email reporting
+
+on:
+  schedule:
+    # runs daily at 18:20 UTC (which is 23:50 IST / 11:50 PM IST)
+    - cron: '20 18 * * *'
+  workflow_dispatch:
+    # allows manual triggering from github UI for testing
+
+jobs:
+  send-reports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: trigger status reports
+        run: |
+          # exit on any error
+          set -e
+          
+          # check if variables are set
+          if [ -z "${{ secrets.APP_URL }}" ]; then
+            echo "error: APP_URL secret is not set in github repository secrets."
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "error: CRON_SECRET secret is not set in github repository secrets."
+            exit 1
+          fi
+          
+          # clean trailing slash if any from APP_URL
+          BASE_URL=$(echo "${{ secrets.APP_URL }}" | sed 's/\/$//')
+          
+          echo "system: starting status report triggers for ${BASE_URL}..."
+          
+          # 1. trigger daily report (always runs)
+          echo "system: triggering daily report..."
+          curl -f -X POST "${BASE_URL}/api/cron-email?type=daily" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+            
+          # 2. trigger weekly report (runs on sundays)
+          # date +%u returns 1-7 (1=monday, 7=sunday)
+          DAY_OF_WEEK=$(date +%u)
+          if [ "$DAY_OF_WEEK" -eq 7 ]; then
+            echo "system: today is sunday. triggering weekly report..."
+            curl -f -X POST "${BASE_URL}/api/cron-email?type=weekly" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+          else
+            echo "system: skipping weekly report (today is day $DAY_OF_WEEK/7)."
+          fi
+          
+          # 3. trigger monthly report (runs on the last day of the month)
+          # check if tomorrow's month is different from today's month
+          TODAY_MONTH=$(date +%m)
+          TOMORROW_MONTH=$(date -d "tomorrow" +%m)
+          if [ "$TODAY_MONTH" != "$TOMORROW_MONTH" ]; then
+            echo "system: today is the last day of the month. triggering monthly report..."
+            curl -f -X POST "${BASE_URL}/api/cron-email?type=monthly" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+          else
+            echo "system: skipping monthly report (tomorrow's month is $TOMORROW_MONTH, today's is $TODAY_MONTH)."
+          fi
+          
+          echo "system: all scheduled report triggers completed successfully."

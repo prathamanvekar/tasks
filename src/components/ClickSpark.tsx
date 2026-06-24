@@ -32,8 +32,18 @@ const ClickSpark: React.FC<ClickSparkProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sparksRef = useRef<Spark[]>([]);
   const startTimeRef = useRef<number | null>(null);
+  const [isMobile, setIsMobile] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+
+  React.useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
+    if (isMobile) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -64,7 +74,7 @@ const ClickSpark: React.FC<ClickSparkProps> = ({
       ro.disconnect();
       clearTimeout(resizeTimeout);
     };
-  }, []);
+  }, [isMobile]);
 
   const easeFunc = useCallback(
     (t: number) => {
@@ -83,6 +93,7 @@ const ClickSpark: React.FC<ClickSparkProps> = ({
   );
 
   useEffect(() => {
+    if (isMobile) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -142,9 +153,10 @@ const ClickSpark: React.FC<ClickSparkProps> = ({
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [sparkColor, sparkSize, sparkRadius, sparkCount, duration, easeFunc, extraScale]);
+  }, [isMobile, sparkColor, sparkSize, sparkRadius, sparkCount, duration, easeFunc, extraScale]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (isMobile) return;
     const target = e.target as HTMLElement;
     if (target && (target.closest('#theme-toggle-input') || target.closest('.theme-switch-wrapper'))) {
       return; // Skip click sparks for the theme toggle to save performance
@@ -168,6 +180,10 @@ const ClickSpark: React.FC<ClickSparkProps> = ({
 
     sparksRef.current.push(...newSparks);
   };
+
+  if (isMobile) {
+    return <>{children}</>;
+  }
 
   return (
     <div className="relative w-full min-h-screen" onClick={handleClick}>

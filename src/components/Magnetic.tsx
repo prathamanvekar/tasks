@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 interface MagneticProps {
@@ -9,8 +9,17 @@ interface MagneticProps {
 export const Magnetic: React.FC<MagneticProps> = ({ children, active = true }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
 
-  if (!active) return children;
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  if (!active || isMobile) return children;
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!ref.current) return;

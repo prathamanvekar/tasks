@@ -91,8 +91,14 @@ h2 {
   width: 100%;
   max-width: 812px;
   margin: 0 auto;
-  padding: 40px 0px; /* Zero horizontal padding for pure edge-to-edge look */
+  padding: 24px 16px;
   box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  #root {
+    padding: 40px 0px;
+  }
 }
 
 /* --- FORM TITLE POP STYLES --- */
@@ -672,16 +678,26 @@ h2 {
 .brutal-card {
   background-color: var(--code-bg);
   border: 1px solid var(--border);
-  padding: 24px;
+  padding: 16px;
   border-radius: 6px;
+}
+@media (min-width: 768px) {
+  .brutal-card {
+    padding: 24px;
+  }
 }
 
 .brutal-hover-card {
   background-color: var(--code-bg);
   border: 1px solid var(--border);
-  padding: 20px;
+  padding: 16px;
   border-radius: 6px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (min-width: 768px) {
+  .brutal-hover-card {
+    padding: 20px;
+  }
 }
 
 .brutal-hover-card:hover {

@@ -209,6 +209,15 @@ export default function App() {
     const saved = localStorage.getItem('theme');
     return saved ? saved === 'dark' : true;
   });
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'insights'>('daily');
   const [direction, setDirection] = useState(0);
@@ -441,7 +450,7 @@ export default function App() {
   // Circular View Transition Theme Toggler
   const handleThemeToggle = (e: React.MouseEvent<HTMLInputElement>) => {
     const doc = document as any;
-    if (!doc.startViewTransition) {
+    if (!doc.startViewTransition || isMobile) {
       setIsDark(!isDark);
       return;
     }
@@ -525,22 +534,22 @@ export default function App() {
       mouseY.set(e.clientY - 26);
     };
 
-    if (isHoveringGreetingOrPfp) {
+    if (isHoveringGreetingOrPfp && !isMobile) {
       window.addEventListener('mousemove', handleMouseMove);
     }
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
     };
-  }, [isHoveringGreetingOrPfp, mouseX, mouseY]);
+  }, [isHoveringGreetingOrPfp, isMobile, mouseX, mouseY]);
 
   // Ditto frame cycle logic
   useEffect(() => {
-    if (!isHoveringGreetingOrPfp) return;
+    if (!isHoveringGreetingOrPfp || isMobile) return;
     const interval = setInterval(() => {
       setDittoFrame((prev) => (prev % 4) + 1);
     }, 110);
     return () => clearInterval(interval);
-  }, [isHoveringGreetingOrPfp]);
+  }, [isHoveringGreetingOrPfp, isMobile]);
 
   // Handle Simulated date change
   useEffect(() => {
@@ -912,12 +921,57 @@ export default function App() {
       <div className="min-h-screen pb-24 relative select-none">
         
         {/* HEADER AREA */}
-        <header className="flex justify-between items-center mb-12 relative z-50">
-          <div className="flex items-center gap-4">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-5 mb-8 md:mb-12 relative z-50">
+          
+          {/* Mobile-only header top bar (Avatar + Settings + Theme Switch) */}
+          <div className="flex md:hidden justify-between items-center w-full">
+            <div className="relative flex-shrink-0">
+              <img 
+                src={bocchiAvatar.src} 
+                alt="bocchi logo" 
+                className={`w-12 h-12 rounded border-[1.5px] border-[var(--text-h)] object-cover shadow-[2px_2px_0_var(--accent)] select-none pointer-events-none transition-all duration-300 ${bocchiAvatar.className}`}
+              />
+              {completedDailyCount === 5 && (
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center animate-bounce">
+                  <svg 
+                    viewBox="0 0 7 6" 
+                    className="w-full h-full text-[var(--accent)] fill-current pixel-badge-outline"
+                  >
+                    <path d="M1,0 h2 v1 h-2 z M4,0 h2 v1 h-2 z
+                             M0,1 h7 v1 h-7 z
+                             M0,2 h7 v1 h-7 z
+                             M1,3 h5 v1 h-5 z
+                             M2,4 h3 v1 h-3 z
+                             M3,5 h1 v1 h-1 z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSandbox(prev => !prev);
+                  playTickSound();
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] cursor-pointer select-none lowercase transition-all active:scale-95 focus:outline-none"
+                title="toggle developer sandbox"
+              >
+                <Terminal className="w-3.5 h-3.5 text-[var(--accent)]" />
+                <span>[ settings ]</span>
+              </button>
+              <ThemeToggle isDark={isDark} onToggle={handleThemeToggle} />
+            </div>
+          </div>
+
+          {/* Desktop/Tablet-ready layout block */}
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            {/* Desktop-only Avatar */}
             <div 
-              className="relative flex-shrink-0"
-              onMouseEnter={() => setIsHoveringGreetingOrPfp(true)}
-              onMouseLeave={() => setIsHoveringGreetingOrPfp(false)}
+              className="hidden md:block relative flex-shrink-0"
+              onMouseEnter={() => !isMobile && setIsHoveringGreetingOrPfp(true)}
+              onMouseLeave={() => !isMobile && setIsHoveringGreetingOrPfp(false)}
             >
               <img 
                 src={bocchiAvatar.src} 
@@ -940,14 +994,16 @@ export default function App() {
                 </div>
               )}
             </div>
+            
+            {/* Greeting + Capsules */}
             <div 
-              className="flex flex-col gap-2"
-              onMouseEnter={() => setIsHoveringGreetingOrPfp(true)}
-              onMouseLeave={() => setIsHoveringGreetingOrPfp(false)}
+              className="flex flex-col gap-2 w-full md:w-auto"
+              onMouseEnter={() => !isMobile && setIsHoveringGreetingOrPfp(true)}
+              onMouseLeave={() => !isMobile && setIsHoveringGreetingOrPfp(false)}
             >
               <SplitText 
                 text={`${getGreeting()}, pratham.`}
-                className="text-3xl font-extrabold text-[var(--text-h)] lowercase leading-none tracking-tight"
+                className="text-2xl md:text-3xl font-extrabold text-[var(--text-h)] lowercase leading-none tracking-tight"
                 tag="h1"
                 delay={40}
                 duration={0.85}
@@ -980,7 +1036,8 @@ export default function App() {
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          {/* Desktop-only Controls */}
+          <div className="hidden md:flex items-center gap-4">
             <ThemeToggle isDark={isDark} onToggle={handleThemeToggle} />
           </div>
         </header>
@@ -1061,7 +1118,7 @@ export default function App() {
                 >
                   
                   {/* Left checklist (Static brutal border, no hover lift) */}
-                  <motion.div variants={itemVariants} className="md:col-span-7 bg-[var(--code-bg)] border border-[var(--border)] p-6 rounded-lg space-y-6">
+                  <motion.div variants={itemVariants} className="md:col-span-7 bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-6 rounded-lg space-y-6">
                     <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                       <h2 className="text-sm font-bold text-[var(--text-h)] lowercase">
                         daily items
@@ -1119,7 +1176,7 @@ export default function App() {
                   </motion.div>
 
                   {/* Right side calendar scroller */}
-                  <motion.div variants={itemVariants} className="md:col-span-5 bg-[var(--code-bg)] border border-[var(--border)] p-5 rounded-lg space-y-4">
+                  <motion.div variants={itemVariants} className="md:col-span-5 bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-5 rounded-lg space-y-4">
                     <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                       <button 
                         onClick={() => shiftMonth(-1)}
@@ -1280,7 +1337,7 @@ export default function App() {
                 )}
 
                 {/* Main panel container (Static brutal border, no hover lift) */}
-                 <motion.form onSubmit={handleWeeklySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-8 rounded-lg space-y-8">
+                 <motion.form onSubmit={handleWeeklySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-8 rounded-lg space-y-8">
                   <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       open source contributions
@@ -1460,7 +1517,7 @@ export default function App() {
                 )}
 
                 {/* Main monthly container (Static brutal border, no hover lift) */}
-                 <motion.form onSubmit={handleMonthlySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-8 rounded-lg space-y-8">
+                 <motion.form onSubmit={handleMonthlySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-8 rounded-lg space-y-8">
                   <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       written publications (min 1-2 articles)
@@ -1997,7 +2054,7 @@ export default function App() {
 
         {/* Ditto Custom Cursor Follower */}
         <AnimatePresence>
-          {isHoveringGreetingOrPfp && (
+          {isHoveringGreetingOrPfp && !isMobile && (
             <motion.div
               style={{
                 position: 'fixed',

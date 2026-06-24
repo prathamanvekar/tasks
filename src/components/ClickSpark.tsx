@@ -145,6 +145,11 @@ const ClickSpark: React.FC<ClickSparkProps> = ({
   }, [sparkColor, sparkSize, sparkRadius, sparkCount, duration, easeFunc, extraScale]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const target = e.target as HTMLElement;
+    if (target && (target.closest('#theme-toggle-input') || target.closest('.theme-switch-wrapper'))) {
+      return; // Skip click sparks for the theme toggle to save performance
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();

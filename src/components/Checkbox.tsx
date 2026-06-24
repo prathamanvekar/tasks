@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { playScratchSound } from '../utils/sounds';
 
 interface CheckboxProps {
@@ -7,9 +8,10 @@ interface CheckboxProps {
   onChange: (checked: boolean) => void;
   label: string;
   disabled?: boolean;
+  onMouseEnter?: () => void;
 }
 
-const Checkbox: React.FC<CheckboxProps> = ({ id, checked, onChange, label, disabled = false }) => {
+const Checkbox: React.FC<CheckboxProps> = ({ id, checked, onChange, label, disabled = false, onMouseEnter }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<any[]>([]);
   const animationFrameRef = useRef<number | null>(null);
@@ -136,7 +138,12 @@ const Checkbox: React.FC<CheckboxProps> = ({ id, checked, onChange, label, disab
   };
 
   return (
-    <div className={`checkbox-wrapper flex items-center ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+    <motion.div 
+      className={`checkbox-wrapper flex items-center ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      onMouseEnter={onMouseEnter}
+      animate={checked ? { scale: [1, 1.04, 1] } : { scale: 1 }}
+      transition={{ type: "spring", stiffness: 450, damping: 15 }}
+    >
       <input 
         type="checkbox" 
         className="check" 
@@ -154,7 +161,7 @@ const Checkbox: React.FC<CheckboxProps> = ({ id, checked, onChange, label, disab
             className="absolute pointer-events-none select-none left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0"
           />
           <svg width={36} height={36} viewBox="0 0 95 95" className="relative z-10 transition-transform duration-200 active:scale-95">
-            <rect x={30} y={20} width={50} height={50} stroke="var(--text-h)" strokeWidth={2.5} fill="none" />
+            <rect x={30} y={20} width={50} height={50} rx={6} ry={6} stroke="var(--text-h)" strokeWidth={2.5} fill="none" />
             <g transform="translate(0,-952.36222)">
               <path 
                 d="m 56,963 c -102,122 6,9 7,9 17,-5 -66,69 -38,52 122,-77 -7,14 18,4 29,-11 45,-43 23,-4" 
@@ -170,7 +177,7 @@ const Checkbox: React.FC<CheckboxProps> = ({ id, checked, onChange, label, disab
           {label}
         </span>
       </label>
-    </div>
+    </motion.div>
   );
 };
 

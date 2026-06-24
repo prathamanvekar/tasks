@@ -9,6 +9,7 @@ interface InputProps {
   type?: string;
   required?: boolean;
   disabled?: boolean;
+  onMouseEnter?: () => void;
 }
 
 const Input: React.FC<InputProps> = ({
@@ -18,7 +19,8 @@ const Input: React.FC<InputProps> = ({
   onChange,
   type = 'text',
   required = false,
-  disabled = false
+  disabled = false,
+  onMouseEnter
 }) => {
   const [isFocused, setIsFocused] = useState(false);
 
@@ -37,7 +39,10 @@ const Input: React.FC<InputProps> = ({
   const chars = label.split('');
 
   return (
-    <div className={`form-control-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div 
+      className={`form-control-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+      onMouseEnter={onMouseEnter}
+    >
       <div className={`form-control ${isFloating ? 'floating' : ''}`}>
         <input
           id={id}

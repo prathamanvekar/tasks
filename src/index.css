@@ -19,9 +19,12 @@
   --switch-active-track: #a78bfa;
   --switch-outline: var(--text-h);
   
-  --sans: "Century Gothic", CenturyGothic, Geneva, AppleGothic, sans-serif;
-  --heading: "Century Gothic", CenturyGothic, Geneva, AppleGothic, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-active: "Space Mono", monospace;
+  --font-sans: var(--font-active);
+  --font-mono: var(--font-active);
+  --sans: var(--font-active);
+  --heading: var(--font-active);
+  --mono: var(--font-active);
 }
 
 .dark-theme {
@@ -727,4 +730,35 @@ h2 {
           drop-shadow(-1px 0 0 var(--text-h)) 
           drop-shadow(0 1px 0 var(--text-h)) 
           drop-shadow(0 -1px 0 var(--text-h));
+}
+
+
+
+/* Smooth custom tab transition helper */
+.tab-content-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+/* Custom View Transitions circular ripple styling */
+::view-transition-image-pair(root) {
+  isolation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+  display: block;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 99999;
+  will-change: clip-path;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
 }

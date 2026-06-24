@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion';
+import gsap from 'gsap';
 import { 
   CheckCircle2, 
   Calendar, 
@@ -18,7 +19,69 @@ import ThemeToggle from './components/ThemeToggle';
 import Checkbox from './components/Checkbox';
 import Input from './components/Input';
 import SplitText from './components/SplitText';
-import { playSuccessSound, playTickSound, playScratchSound } from './utils/sounds';
+import { playSuccessSound, playTickSound, playScratchSound, playMechanicalKeyboardClick, playHoverTick } from './utils/sounds';
+import { Heatmap } from './components/Heatmap';
+import { Magnetic } from './components/Magnetic';
+
+const TABS_ORDER = ['daily', 'weekly', 'monthly', 'insights'] as const;
+
+const tabVariants = {
+  enter: (direction: number) => ({
+    x: direction > 0 ? 100 : -100,
+    opacity: 0
+  }),
+  center: {
+    x: 0,
+    opacity: 1
+  },
+  exit: (direction: number) => ({
+    x: direction < 0 ? 100 : -100,
+    opacity: 0
+  })
+};
+
+const tabTransition = {
+  x: { type: 'spring', stiffness: 300, damping: 30 },
+  opacity: { duration: 0.2 }
+} as const;
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.05,
+      delayChildren: 0.02
+    }
+  }
+} as const;
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15, scale: 0.98 },
+  show: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      type: 'spring',
+      stiffness: 300,
+      damping: 20
+    }
+  }
+} as const;
+
+const scrollRevealVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      type: 'spring',
+      stiffness: 100,
+      damping: 15
+    }
+  }
+} as const;
 
 // Helper to format Date into YYYY-MM-DD
 function formatDateString(date: Date): string {
@@ -129,6 +192,18 @@ const DEFAULT_MONTHLY: MonthlyTaskState = {
 };
 
 export default function App() {
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  
+  const springConfig = { damping: 25, stiffness: 250 };
+  const cursorX = useSpring(mouseX, springConfig);
+  const cursorY = useSpring(mouseY, springConfig);
+
+  const [isHoveringGreetingOrPfp, setIsHoveringGreetingOrPfp] = useState(false);
+  const [dittoFrame, setDittoFrame] = useState(1);
+
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
   const [loading, setLoading] = useState(true);
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme');
@@ -136,6 +211,27 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'insights'>('daily');
+  const [direction, setDirection] = useState(0);
+
+  // Tactile hover ticks state
+  const [isHoverSoundActive, setIsHoverSoundActive] = useState<boolean>(() => {
+    return localStorage.getItem('hover_sounds_active') === 'true';
+  });
+
+  const handleTabChange = (newTab: 'daily' | 'weekly' | 'monthly' | 'insights') => {
+    const currentIndex = TABS_ORDER.indexOf(activeTab);
+    const newIndex = TABS_ORDER.indexOf(newTab);
+    setDirection(newIndex > currentIndex ? 1 : -1);
+    setActiveTab(newTab);
+    playTickSound();
+  };
+
+  const handleMouseEnter = () => {
+    if (isHoverSoundActive) {
+      playHoverTick();
+    }
+  };
+
   const [currentDate, setCurrentDate] = useState(new Date());
   
   // Date overrides for debugging / simulating Sandbox
@@ -160,6 +256,15 @@ export default function App() {
   // Sync State
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error' | 'unconfigured'>('unconfigured');
   const [syncKey, setSyncKey] = useState(() => localStorage.getItem('sync_key') || '');
+
+  // Percentage Calculations
+  const completedDailyCount = Object.values(dailyTasks).filter(Boolean).length;
+  const dailyPercent = Math.round((completedDailyCount / 5) * 100);
+
+  // Keyboard Click Soundscape State
+  const [isKeyboardSoundActive, setIsKeyboardSoundActive] = useState<boolean>(() => {
+    return localStorage.getItem('keyboard_sound_active') === 'true';
+  });
 
   const triggerSync = async (keyToUse = syncKey) => {
     if (!keyToUse) {
@@ -333,6 +438,110 @@ export default function App() {
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }, [isDark]);
 
+  // Circular View Transition Theme Toggler
+  const handleThemeToggle = (e: React.MouseEvent<HTMLInputElement>) => {
+    const doc = document as any;
+    if (!doc.startViewTransition) {
+      setIsDark(!isDark);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX || (rect.left + rect.width / 2);
+    const y = e.clientY || (rect.top + rect.height / 2);
+
+    const endRadius = Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y)
+    );
+
+    const transition = doc.startViewTransition(() => {
+      setIsDark(!isDark);
+    });
+
+    transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${x}px ${y}px)`,
+            `circle(${endRadius}px at ${x}px ${y}px)`
+          ]
+        },
+        {
+          duration: 400,
+          easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        }
+      );
+    });
+  };
+
+  // GSAP Progress Bar Spring Animation
+  useEffect(() => {
+    if (!progressBarRef.current) return;
+    const segments = progressBarRef.current.children;
+    
+    for (let i = 0; i < 5; i++) {
+      const segment = segments[i] as HTMLElement;
+      if (!segment) continue;
+      const isFilled = completedDailyCount > i;
+      
+      if (isFilled) {
+        const alreadyFilled = segment.getAttribute('data-filled') === 'true';
+        if (!alreadyFilled) {
+          segment.setAttribute('data-filled', 'true');
+          // Snappy material bounce
+          gsap.fromTo(segment, 
+            { scale: 0.8, y: 0, x: 0 }, 
+            { 
+              scale: 1, 
+              y: -1, 
+              x: -1, 
+              duration: 0.4, 
+              ease: "back.out(2.5)",
+              overwrite: "auto"
+            }
+          );
+        }
+      } else {
+        segment.removeAttribute('data-filled');
+        gsap.to(segment, { 
+          scale: 1, 
+          y: 0, 
+          x: 0, 
+          duration: 0.25, 
+          ease: "power2.out",
+          overwrite: "auto"
+        });
+      }
+    }
+  }, [completedDailyCount]);
+
+  // Ditto cursor tracking logic
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      // Offset so the Ditto sits centered at the pointer
+      mouseX.set(e.clientX - 26);
+      mouseY.set(e.clientY - 26);
+    };
+
+    if (isHoveringGreetingOrPfp) {
+      window.addEventListener('mousemove', handleMouseMove);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [isHoveringGreetingOrPfp, mouseX, mouseY]);
+
+  // Ditto frame cycle logic
+  useEffect(() => {
+    if (!isHoveringGreetingOrPfp) return;
+    const interval = setInterval(() => {
+      setDittoFrame((prev) => (prev % 4) + 1);
+    }, 110);
+    return () => clearInterval(interval);
+  }, [isHoveringGreetingOrPfp]);
+
   // Handle Simulated date change
   useEffect(() => {
     if (customDateStr) {
@@ -353,11 +562,36 @@ export default function App() {
         e.preventDefault();
         setShowSandbox(prev => !prev);
         playTickSound();
+      } else if (e.key === 'Escape') {
+        setShowSandbox(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Keyboard keydown listener for keyclick sounds
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Play click sound if typing in inputs/textareas
+      if (isKeyboardSoundActive) {
+        const activeEl = document.activeElement;
+        if (activeEl && (
+          activeEl.tagName === 'INPUT' || 
+          activeEl.tagName === 'TEXTAREA' || 
+          activeEl.getAttribute('contenteditable') === 'true'
+        )) {
+          const ignoredKeys = ['Control', 'Shift', 'Alt', 'Meta', 'CapsLock', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+          if (!ignoredKeys.includes(e.key)) {
+            playMechanicalKeyboardClick();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isKeyboardSoundActive]);
 
   const activeDateKey = formatDateString(currentDate);
   const activeWeekKey = getWeekString(currentDate);
@@ -578,7 +812,7 @@ export default function App() {
 
   // Time of Day Greeting
   const getGreeting = () => {
-    const hours = currentDate.getHours();
+    const hours = new Date().getHours();
     if (hours < 12) return 'good morning';
     if (hours < 17) return 'good afternoon';
     if (hours < 21) return 'good evening';
@@ -608,9 +842,6 @@ export default function App() {
     playTickSound();
   };
 
-  // Percentage Calculations
-  const completedDailyCount = Object.values(dailyTasks).filter(Boolean).length;
-  const dailyPercent = Math.round((completedDailyCount / 5) * 100);
 
   // Dynamic Bocchi React Avatar settings based on completion count
   const getBocchiAvatar = () => {
@@ -683,11 +914,15 @@ export default function App() {
         {/* HEADER AREA */}
         <header className="flex justify-between items-center mb-12 relative z-50">
           <div className="flex items-center gap-4">
-            <div className="relative flex-shrink-0">
+            <div 
+              className="relative flex-shrink-0"
+              onMouseEnter={() => setIsHoveringGreetingOrPfp(true)}
+              onMouseLeave={() => setIsHoveringGreetingOrPfp(false)}
+            >
               <img 
                 src={bocchiAvatar.src} 
                 alt="bocchi logo" 
-                className={`w-12 h-12 rounded border-[1.5px] border-[var(--text-h)] object-cover shadow-[3px_3px_0_var(--accent)] select-none pointer-events-none transition-all duration-300 ${bocchiAvatar.className}`}
+                className={`w-14 h-14 rounded border-[1.5px] border-[var(--text-h)] object-cover shadow-[3px_3px_0_var(--accent)] select-none pointer-events-none transition-all duration-300 ${bocchiAvatar.className}`}
               />
               {completedDailyCount === 5 && (
                 <div className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center animate-bounce">
@@ -705,7 +940,11 @@ export default function App() {
                 </div>
               )}
             </div>
-            <div className="flex flex-col gap-2">
+            <div 
+              className="flex flex-col gap-2"
+              onMouseEnter={() => setIsHoveringGreetingOrPfp(true)}
+              onMouseLeave={() => setIsHoveringGreetingOrPfp(false)}
+            >
               <SplitText 
                 text={`${getGreeting()}, pratham.`}
                 className="text-3xl font-extrabold text-[var(--text-h)] lowercase leading-none tracking-tight"
@@ -713,35 +952,36 @@ export default function App() {
                 delay={40}
                 duration={0.85}
               />
-              <div className="flex items-center gap-3 mt-1 flex-wrap">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 {/* Monospace Capsule Date */}
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] lowercase select-none">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] lowercase select-none">
                   <Calendar className="w-3.5 h-3.5 text-[var(--accent)]" />
                   <span>[ {currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toLowerCase()} ]</span>
                 </div>
                 
                 {streak > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] lowercase select-none">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] lowercase select-none">
                     <Terminal className="w-3.5 h-3.5 text-[var(--accent)]" />
                     <span>[ uptime: {streak}d ]</span>
                   </div>
                 )}
                 
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] lowercase select-none">
-                  <Database className="w-3.5 h-3.5 text-[var(--accent)]" />
-                  <span>[ sync: <span className={
-                    syncStatus === 'synced' ? 'text-emerald-500 font-bold' :
-                    syncStatus === 'syncing' ? 'text-amber-500 animate-pulse' :
-                    syncStatus === 'offline' ? 'text-rose-400' :
-                    syncStatus === 'error' ? 'text-rose-500 font-bold' : 'text-[var(--text-muted)]'
-                  }>{syncStatus}</span> ]</span>
-                </div>
+                {syncStatus !== 'synced' && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-[var(--code-bg)] border border-[var(--border)] rounded font-mono text-2xs text-[var(--text-h)] lowercase select-none">
+                    <Database className="w-3.5 h-3.5 text-[var(--accent)]" />
+                    <span>[ sync: <span className={
+                      syncStatus === 'syncing' ? 'text-amber-500 animate-pulse' :
+                      syncStatus === 'offline' ? 'text-rose-400' :
+                      syncStatus === 'error' ? 'text-rose-500 font-bold' : 'text-[var(--text-muted)]'
+                    }>{syncStatus}</span> ]</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
-            <ThemeToggle isDark={isDark} onToggle={() => setIsDark(!isDark)} />
+            <ThemeToggle isDark={isDark} onToggle={handleThemeToggle} />
           </div>
         </header>
 
@@ -750,25 +990,25 @@ export default function App() {
           {(['daily', 'weekly', 'monthly', 'insights'] as const).map((tab) => {
             const isActive = activeTab === tab;
             return (
-              <button
-                key={tab}
-                onClick={() => {
-                  setActiveTab(tab);
-                  playTickSound();
-                }}
-                className={`relative px-6 py-3 text-sm font-semibold tracking-wider transition-colors duration-200 focus:outline-none lowercase cursor-pointer ${
-                  isActive ? 'text-[var(--text-h)]' : 'text-[var(--text-muted)] hover:text-[var(--text-h)]'
-                }`}
-              >
-                {tab}
-                {isActive && (
-                  <motion.div 
-                    layoutId="active-tab-line"
-                    className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--accent)]"
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                  />
-                )}
-              </button>
+              <Magnetic key={tab}>
+                <button
+                  key={tab}
+                  onClick={() => handleTabChange(tab)}
+                  onMouseEnter={handleMouseEnter}
+                  className={`relative px-6 py-3 text-sm font-semibold tracking-wider transition-colors duration-200 focus:outline-none lowercase cursor-pointer ${
+                    isActive ? 'text-[var(--text-h)]' : 'text-[var(--text-muted)] hover:text-[var(--text-h)]'
+                  }`}
+                >
+                  {tab}
+                  {isActive && (
+                    <motion.div 
+                      layoutId="active-tab-line"
+                      className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--accent)]"
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </button>
+              </Magnetic>
             );
           })}
         </nav>
@@ -781,11 +1021,13 @@ export default function App() {
             {activeTab === 'daily' && (
               <motion.div
                 key="daily"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-8"
+                custom={direction}
+                variants={tabVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={tabTransition}
+                className="space-y-8 tab-content-wrapper"
               >
                 {/* Progress bar */}
                 <div className="space-y-3">
@@ -793,16 +1035,16 @@ export default function App() {
                     <span>daily index</span>
                     <span>{dailyPercent}%</span>
                   </div>
-                  <div className="grid grid-cols-5 gap-2.5 w-full select-none">
+                  <div ref={progressBarRef} className="grid grid-cols-5 gap-2.5 w-full select-none">
                     {Array.from({ length: 5 }).map((_, idx) => {
                       const isFilled = completedDailyCount > idx;
                       return (
                         <div 
                           key={idx} 
-                          className={`h-3.5 border-[1.5px] border-[var(--text-h)] rounded-sm transition-all duration-300 ${
+                          className={`h-3.5 border-[1.5px] border-[var(--text-h)] rounded-sm ${
                             isFilled 
-                              ? 'bg-[var(--accent)] shadow-[2px_2px_0_var(--text-h)] translate-y-[-1px] translate-x-[-1px]' 
-                              : 'bg-[var(--code-bg)] opacity-40 shadow-none translate-y-0 translate-x-0'
+                              ? 'bg-[var(--accent)] shadow-[2px_2px_0_var(--text-h)]' 
+                              : 'bg-[var(--code-bg)] opacity-40 shadow-none'
                           }`} 
                         />
                       );
@@ -811,10 +1053,15 @@ export default function App() {
                 </div>
 
                 {/* Split Column Design: Left Column (Tasks), Right Column (Calendar View) */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+                <motion.div 
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="show"
+                  className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start"
+                >
                   
                   {/* Left checklist (Static brutal border, no hover lift) */}
-                  <div className="md:col-span-7 bg-[var(--code-bg)] border border-[var(--border)] p-6 rounded-lg space-y-6">
+                  <motion.div variants={itemVariants} className="md:col-span-7 bg-[var(--code-bg)] border border-[var(--border)] p-6 rounded-lg space-y-6">
                     <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                       <h2 className="text-sm font-bold text-[var(--text-h)] lowercase">
                         daily items
@@ -822,42 +1069,57 @@ export default function App() {
                       <span className="font-mono text-2xs text-[var(--accent)]">[ {activeDateKey} ]</span>
                     </div>
 
-                    <div className="space-y-5">
-                      <Checkbox 
-                        id="bootdev"
-                        checked={dailyTasks.bootdev}
-                        onChange={(val) => updateDailyTask('bootdev', val)}
-                        label="boot.dev (min 2 lessons)"
-                      />
-                      <Checkbox 
-                        id="neetcode"
-                        checked={dailyTasks.neetcode}
-                        onChange={(val) => updateDailyTask('neetcode', val)}
-                        label="neetcode (min 2 problems)"
-                      />
-                      <Checkbox 
-                        id="ailearning"
-                        checked={dailyTasks.ailearning}
-                        onChange={(val) => updateDailyTask('ailearning', val)}
-                        label="ai learning (min 0.5 chapter)"
-                      />
-                      <Checkbox 
-                        id="twitter"
-                        checked={dailyTasks.twitter}
-                        onChange={(val) => updateDailyTask('twitter', val)}
-                        label="twitter post (min 1 post)"
-                      />
-                      <Checkbox 
-                        id="jobhunt"
-                        checked={dailyTasks.jobhunt}
-                        onChange={(val) => updateDailyTask('jobhunt', val)}
-                        label="job hunt (apply / search)"
-                      />
-                    </div>
-                  </div>
+                    <motion.div variants={containerVariants} className="space-y-5">
+                      <motion.div variants={itemVariants}>
+                        <Checkbox 
+                          id="bootdev"
+                          checked={dailyTasks.bootdev}
+                          onChange={(val) => updateDailyTask('bootdev', val)}
+                          label="boot.dev (min 2 lessons)"
+                          onMouseEnter={handleMouseEnter}
+                        />
+                      </motion.div>
+                      <motion.div variants={itemVariants}>
+                        <Checkbox 
+                          id="neetcode"
+                          checked={dailyTasks.neetcode}
+                          onChange={(val) => updateDailyTask('neetcode', val)}
+                          label="neetcode (min 2 problems)"
+                          onMouseEnter={handleMouseEnter}
+                        />
+                      </motion.div>
+                      <motion.div variants={itemVariants}>
+                        <Checkbox 
+                          id="ailearning"
+                          checked={dailyTasks.ailearning}
+                          onChange={(val) => updateDailyTask('ailearning', val)}
+                          label="ai learning (min 0.5 chapter)"
+                          onMouseEnter={handleMouseEnter}
+                        />
+                      </motion.div>
+                      <motion.div variants={itemVariants}>
+                        <Checkbox 
+                          id="twitter"
+                          checked={dailyTasks.twitter}
+                          onChange={(val) => updateDailyTask('twitter', val)}
+                          label="twitter post (min 1 post)"
+                          onMouseEnter={handleMouseEnter}
+                        />
+                      </motion.div>
+                      <motion.div variants={itemVariants}>
+                        <Checkbox 
+                          id="jobhunt"
+                          checked={dailyTasks.jobhunt}
+                          onChange={(val) => updateDailyTask('jobhunt', val)}
+                          label="job hunt (apply / search)"
+                          onMouseEnter={handleMouseEnter}
+                        />
+                      </motion.div>
+                    </motion.div>
+                  </motion.div>
 
                   {/* Right side calendar scroller */}
-                  <div className="md:col-span-5 bg-[var(--code-bg)] border border-[var(--border)] p-5 rounded-lg space-y-4">
+                  <motion.div variants={itemVariants} className="md:col-span-5 bg-[var(--code-bg)] border border-[var(--border)] p-5 rounded-lg space-y-4">
                     <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                       <button 
                         onClick={() => shiftMonth(-1)}
@@ -950,20 +1212,23 @@ export default function App() {
                     </div>
 
                     <div className="flex justify-between items-center pt-3 border-t border-[var(--border)]/50">
-                      <button 
-                        onClick={resetToToday}
-                        className="text-3xs font-mono text-[var(--text-muted)] border border-[var(--border)] px-2 py-0.5 rounded hover:bg-[var(--text-h)] hover:text-[var(--bg)] transition-all cursor-pointer lowercase"
-                      >
-                        back to today
-                      </button>
+                      <Magnetic>
+                        <button 
+                          onClick={resetToToday}
+                          onMouseEnter={handleMouseEnter}
+                          className="text-3xs font-mono text-[var(--text-muted)] bg-[var(--code-bg)] border border-[var(--border)] px-2.5 py-0.5 rounded-sm hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all cursor-pointer lowercase focus:outline-none"
+                        >
+                          back to today
+                        </button>
+                      </Magnetic>
                       <span className="text-[9px] font-mono text-[var(--text-muted)] flex items-center gap-1.5 lowercase">
                         <span className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full inline-block"></span> completed day
                       </span>
                     </div>
 
-                  </div>
+                  </motion.div>
 
-                </div>
+                </motion.div>
 
                 {dailyPercent === 100 && (
                   <motion.div 
@@ -982,11 +1247,13 @@ export default function App() {
             {activeTab === 'weekly' && (
               <motion.div
                 key="weekly"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-6"
+                custom={direction}
+                variants={tabVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={tabTransition}
+                className="space-y-6 tab-content-wrapper"
               >
                 <div className="flex justify-between items-center bg-[var(--code-bg)] border border-[var(--border)] p-3 rounded-lg">
                   <div className="font-mono text-2xs text-[var(--text-h)] flex items-center gap-1.5 lowercase select-none">
@@ -1013,8 +1280,8 @@ export default function App() {
                 )}
 
                 {/* Main panel container (Static brutal border, no hover lift) */}
-                <form onSubmit={handleWeeklySubmit} className="bg-[var(--code-bg)] border border-[var(--border)] p-8 rounded-lg space-y-8">
-                  <div>
+                 <motion.form onSubmit={handleWeeklySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-8 rounded-lg space-y-8">
+                  <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       open source contributions
                     </h3>
@@ -1026,6 +1293,7 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('oss1', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                       <Input 
                         id="oss2"
@@ -1034,11 +1302,12 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('oss2', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div>
+                  <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       neovim coding project
                     </h3>
@@ -1049,10 +1318,11 @@ export default function App() {
                       onChange={(v) => updateWeeklyField('projectRepo', v)}
                       disabled={!isWeeklyEditable}
                       required
+                      onMouseEnter={handleMouseEnter}
                     />
-                  </div>
+                  </motion.div>
 
-                  <div>
+                  <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       weekly contest links
                     </h3>
@@ -1064,6 +1334,7 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('codechef', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                       <Input 
                         id="codeforces"
@@ -1072,6 +1343,7 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('codeforces', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                       <Input 
                         id="leetcode"
@@ -1080,11 +1352,12 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('leetcode', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div>
+                  <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       hackathons & contests
                     </h3>
@@ -1095,10 +1368,11 @@ export default function App() {
                       onChange={(v) => updateWeeklyField('hackathon', v)}
                       disabled={!isWeeklyEditable}
                       required
+                      onMouseEnter={handleMouseEnter}
                     />
-                  </div>
+                  </motion.div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <h3 className="form-section-title">
                         ctfs
@@ -1110,6 +1384,7 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('ctf', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                     </div>
                     <div>
@@ -1123,22 +1398,28 @@ export default function App() {
                         onChange={(v) => updateWeeklyField('revision', v)}
                         disabled={!isWeeklyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                     </div>
-                  </div>
+                  </motion.div>
 
                   {isWeeklyEditable && (
-                    <button
-                      type="submit"
-                      disabled={!isWeeklyComplete}
-                      className={`brutal-btn w-full ${!isWeeklyComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <span className="brutal-btn-top w-full py-3 px-6 text-center text-sm font-extrabold uppercase">
-                        save weekly report
-                      </span>
-                    </button>
+                    <motion.div variants={itemVariants}>
+                      <Magnetic>
+                        <button
+                          type="submit"
+                          disabled={!isWeeklyComplete}
+                          onMouseEnter={handleMouseEnter}
+                          className={`brutal-btn w-full ${!isWeeklyComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span className="brutal-btn-top w-full py-3 px-6 text-center text-sm font-extrabold uppercase">
+                            save weekly report
+                          </span>
+                        </button>
+                      </Magnetic>
+                    </motion.div>
                   )}
-                </form>
+                </motion.form>
               </motion.div>
             )}
 
@@ -1146,11 +1427,13 @@ export default function App() {
             {activeTab === 'monthly' && (
               <motion.div
                 key="monthly"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-6"
+                custom={direction}
+                variants={tabVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={tabTransition}
+                className="space-y-6 tab-content-wrapper"
               >
                 <div className="flex justify-between items-center bg-[var(--code-bg)] border border-[var(--border)] p-3 rounded-lg">
                   <div className="font-mono text-2xs text-[var(--text-h)] flex items-center gap-1.5 lowercase select-none">
@@ -1177,8 +1460,8 @@ export default function App() {
                 )}
 
                 {/* Main monthly container (Static brutal border, no hover lift) */}
-                <form onSubmit={handleMonthlySubmit} className="bg-[var(--code-bg)] border border-[var(--border)] p-8 rounded-lg space-y-8">
-                  <div>
+                 <motion.form onSubmit={handleMonthlySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-8 rounded-lg space-y-8">
+                  <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       written publications (min 1-2 articles)
                     </h3>
@@ -1190,6 +1473,7 @@ export default function App() {
                         onChange={(v) => updateMonthlyField('blog1', v)}
                         disabled={!isMonthlyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                       <Input 
                         id="blog2"
@@ -1198,11 +1482,12 @@ export default function App() {
                         onChange={(v) => updateMonthlyField('blog2', v)}
                         disabled={!isMonthlyEditable}
                         required
+                        onMouseEnter={handleMouseEnter}
                       />
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div>
+                  <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       programming language feature
                     </h3>
@@ -1213,21 +1498,27 @@ export default function App() {
                       onChange={(v) => updateMonthlyField('langCommit', v)}
                       disabled={!isMonthlyEditable}
                       required
+                      onMouseEnter={handleMouseEnter}
                     />
-                  </div>
+                  </motion.div>
 
                   {isMonthlyEditable && (
-                    <button
-                      type="submit"
-                      disabled={!isMonthlyComplete}
-                      className={`brutal-btn w-full ${!isMonthlyComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <span className="brutal-btn-top w-full py-3 px-6 text-center text-sm font-extrabold uppercase">
-                        save monthly milestone
-                      </span>
-                    </button>
+                    <motion.div variants={itemVariants}>
+                      <Magnetic>
+                        <button
+                          type="submit"
+                          disabled={!isMonthlyComplete}
+                          onMouseEnter={handleMouseEnter}
+                          className={`brutal-btn w-full ${!isMonthlyComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span className="brutal-btn-top w-full py-3 px-6 text-center text-sm font-extrabold uppercase">
+                            save monthly milestone
+                          </span>
+                        </button>
+                      </Magnetic>
+                    </motion.div>
                   )}
-                </form>
+                </motion.form>
               </motion.div>
             )}
 
@@ -1235,15 +1526,17 @@ export default function App() {
             {activeTab === 'insights' && (
               <motion.div
                 key="insights"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.2 }}
-                className="space-y-8"
+                custom={direction}
+                variants={tabVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={tabTransition}
+                className="space-y-8 tab-content-wrapper"
               >
                 {/* Stats Dashboard - using brutal-hover-card for small tiles */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="brutal-hover-card flex flex-col justify-between">
+                <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between">
                     <span className="text-xs font-mono text-[var(--text-muted)] lowercase">current streak</span>
                     <div className="flex items-baseline gap-2 mt-4">
                       <span className="text-4xl font-extrabold text-[var(--text-h)]">{streak}</span>
@@ -1252,9 +1545,9 @@ export default function App() {
                     <div className="text-[var(--accent)] flex items-center gap-1 text-2xs mt-2 font-mono">
                       <Terminal className="w-3.5 h-3.5" /> uptime online
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div className="brutal-hover-card flex flex-col justify-between">
+                  <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between">
                     <span className="text-xs font-mono text-[var(--text-muted)] lowercase">personal record</span>
                     <div className="flex items-baseline gap-2 mt-4">
                       <span className="text-4xl font-extrabold text-[var(--text-h)]">{maxStreak}</span>
@@ -1263,9 +1556,9 @@ export default function App() {
                     <div className="text-[var(--accent)] flex items-center gap-1 text-2xs mt-2 font-mono">
                       <Sparkles className="w-3.5 h-3.5" /> all-time high
                     </div>
-                  </div>
+                  </motion.div>
 
-                  <div className="brutal-hover-card flex flex-col justify-between">
+                  <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between">
                     <span className="text-xs font-mono text-[var(--text-muted)] lowercase">completion rate</span>
                     <div className="flex items-baseline gap-2 mt-4">
                       <span className="text-4xl font-extrabold text-[var(--text-h)]">
@@ -1294,11 +1587,17 @@ export default function App() {
                     <div className="text-[var(--go-blue)] flex items-center gap-1 text-2xs mt-2 font-mono">
                       <CheckCircle2 className="w-3.5 h-3.5" /> habit index
                     </div>
-                  </div>
-                </div>
+                  </motion.div>
+                </motion.div>
 
                 {/* Completion Grid (Github contribution style) */}
-                <div className="brutal-card">
+                <motion.div 
+                  variants={scrollRevealVariants}
+                  initial="hidden"
+                  whileInView="show"
+                  viewport={{ once: true, margin: "-60px" }}
+                  className="brutal-card"
+                >
                   <h3 className="text-sm font-bold text-[var(--text-h)] lowercase mb-4 flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-[var(--accent)]" /> habit grid (past 30 days)
                   </h3>
@@ -1311,8 +1610,10 @@ export default function App() {
                       
                       let checkedCount = 0;
                       if (val) {
-                        const parsed = JSON.parse(val);
-                        checkedCount = Object.values(parsed).filter(Boolean).length;
+                        try {
+                          const parsed = JSON.parse(val);
+                          checkedCount = Object.values(parsed).filter(Boolean).length;
+                        } catch {}
                       }
 
                       const colors = [
@@ -1370,10 +1671,26 @@ export default function App() {
                     </div>
                     <span>today</span>
                   </div>
-                </div>
+                </motion.div>
+
+                {/* Heatmap Grid */}
+                <motion.div
+                  variants={scrollRevealVariants}
+                  initial="hidden"
+                  whileInView="show"
+                  viewport={{ once: true, margin: "-60px" }}
+                >
+                  <Heatmap currentDate={currentDate} />
+                </motion.div>
 
                 {/* Submissions Log */}
-                <div className="brutal-card space-y-4">
+                <motion.div 
+                  variants={scrollRevealVariants}
+                  initial="hidden"
+                  whileInView="show"
+                  viewport={{ once: true, margin: "-60px" }}
+                  className="brutal-card space-y-4"
+                >
                   <h3 className="text-sm font-bold text-[var(--text-h)] lowercase border-b border-[var(--border)] pb-2">
                     weekly & monthly submissions
                   </h3>
@@ -1455,7 +1772,7 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                </div>
+                </motion.div>
               </motion.div>
             )}
 
@@ -1463,124 +1780,195 @@ export default function App() {
         </main>
 
         {/* BOTTOM SANDBOX DRAWER (Retro Terminal look, toggled by Ctrl+K) */}
-        {showSandbox && (
-          <footer className="mt-16 relative z-50">
-            <details className="group font-mono text-2xs cursor-pointer" open>
-              <summary className="list-none flex items-center justify-between select-none p-3 bg-[var(--code-bg)] border border-[var(--border)] hover:border-[var(--text-h)] rounded transition-all duration-200">
-                <span className="flex items-center gap-2">
-                  <Terminal className="w-3.5 h-3.5 text-[var(--accent)] animate-pulse" />
-                  <span className="font-mono text-2xs text-[var(--text-h)] font-bold lowercase">habits.sh - developer sandbox controls</span>
-                </span>
-                <span className="text-[10px] font-bold text-[var(--accent)] lowercase group-open:hidden">[expand]</span>
-                <span className="text-[10px] font-bold text-[var(--accent)] lowercase hidden group-open:inline">[collapse]</span>
-              </summary>
+        <AnimatePresence>
+          {showSandbox && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md">
+              {/* Modal backdrop closer */}
+              <div className="absolute inset-0 cursor-pointer" onClick={() => { setShowSandbox(false); playTickSound(); }} />
               
-              <div className="p-4 border-x border-b border-[var(--border)] bg-[var(--dropdown-bg)] rounded-b space-y-4 cursor-default">
-                <div className="flex flex-wrap items-center gap-6 text-2xs text-[var(--text)]">
-                  
-                  {/* Custom ASCII Checkbox 1 */}
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSimulateSunday(!simulateSunday);
-                      playScratchSound();
-                    }}
-                    className="flex items-center gap-2 hover:text-[var(--accent)] transition-colors select-none font-mono text-left cursor-pointer focus:outline-none"
-                  >
-                    <span className="text-[var(--accent)] font-bold text-sm leading-none">
-                      {simulateSunday ? '[■]' : '[ ]'}
-                    </span>
-                    <span>bypass sunday weekly lock</span>
-                  </button>
+              {/* Modal Content */}
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                className="relative w-full max-w-xl bg-[var(--dropdown-bg)] border-2 border-[var(--text-h)] p-6 rounded shadow-[5px_5px_0_var(--text-h)] font-mono text-2xs z-10 space-y-5 mx-4 cursor-default"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                  <span className="flex items-center gap-2 font-bold lowercase text-[var(--text-h)] text-xs">
+                    <Terminal className="w-4 h-4 text-[var(--accent)] animate-pulse" />
+                    <span>tasks.sh // developer sandbox controls</span>
+                  </span>
+                  <span className="text-[9px] text-[var(--text-muted)] border border-[var(--border)] px-1.5 py-0.5 rounded lowercase font-semibold">
+                    press [esc] to close
+                  </span>
+                </div>
 
-                  {/* Custom ASCII Checkbox 2 */}
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setSimulateMonthlyUnlock(!simulateMonthlyUnlock);
-                      playScratchSound();
-                    }}
-                    className="flex items-center gap-2 hover:text-[var(--accent)] transition-colors select-none font-mono text-left cursor-pointer focus:outline-none"
-                  >
-                    <span className="text-[var(--accent)] font-bold text-sm leading-none">
-                      {simulateMonthlyUnlock ? '[■]' : '[ ]'}
-                    </span>
-                    <span>bypass last day monthly lock</span>
-                  </button>
-
-                  {/* Retro Clock Segment Date adjustment widget */}
-                  <div className="flex items-center gap-3 font-mono text-2xs select-none">
-                    <span>travel date:</span>
-                    <div className="flex items-center border border-[var(--border)] bg-[var(--code-bg)] rounded overflow-hidden">
-                      {/* Year segment */}
-                      <div className="flex flex-col items-center px-2 py-0.5 border-r border-[var(--border)]">
-                        <button type="button" onClick={() => adjustDate('year', 1)} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▲</button>
-                        <span className="text-[var(--text-h)] font-bold my-0.5">{currentDate.getFullYear()}</span>
-                        <button type="button" onClick={() => adjustDate('year', -1)} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▼</button>
-                      </div>
-                      {/* Month segment */}
-                      <div className="flex flex-col items-center px-2 py-0.5 border-r border-[var(--border)]">
-                        <button type="button" onClick={() => adjustDate('month', 1)} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▲</button>
-                        <span className="text-[var(--text-h)] font-bold my-0.5">{String(currentDate.getMonth() + 1).padStart(2, '0')}</span>
-                        <button type="button" onClick={() => adjustDate('month', -1)} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▼</button>
-                      </div>
-                      {/* Day segment */}
-                      <div className="flex flex-col items-center px-2 py-0.5">
-                        <button type="button" onClick={() => adjustDate('day', 1)} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▲</button>
-                        <span className="text-[var(--text-h)] font-bold my-0.5">{String(currentDate.getDate()).padStart(2, '0')}</span>
-                        <button type="button" onClick={() => adjustDate('day', -1)} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▼</button>
-                      </div>
-                    </div>
-
-                    {/* Reset date travel button */}
-                    {activeDateKey !== formatDateString(new Date()) && (
+                {/* Grid content of options */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
+                  <div className="space-y-4">
+                    <h4 className="font-bold border-b border-[var(--border)] pb-1.5 lowercase text-[var(--text-h)] tracking-wide">bypasses & audio</h4>
+                    <div className="space-y-3">
+                      {/* Option 1: Bypass weekly lock */}
                       <button 
                         type="button"
                         onClick={() => {
-                          setCustomDateStr('');
-                          resetToToday();
+                          setSimulateSunday(!simulateSunday);
+                          playScratchSound();
                         }}
-                        className="text-[10px] text-[var(--accent)] hover:underline flex items-center gap-0.5 cursor-pointer lowercase font-mono focus:outline-none border border-[var(--border)] px-1.5 py-1 rounded bg-[var(--code-bg)]"
+                        onMouseEnter={handleMouseEnter}
+                        className="flex items-start gap-3 hover:text-[var(--accent)] transition-colors select-none font-mono text-left cursor-pointer focus:outline-none w-full"
                       >
-                        <Undo className="w-2.5 h-2.5" /> [reset today]
+                        <span className="text-[var(--accent)] font-bold text-sm leading-none flex-shrink-0 whitespace-nowrap pt-0.5">
+                          {simulateSunday ? '[■]' : '[ ]'}
+                        </span>
+                        <span className="lowercase">bypass sunday weekly lock</span>
                       </button>
-                    )}
+
+                      {/* Option 2: Bypass monthly lock */}
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setSimulateMonthlyUnlock(!simulateMonthlyUnlock);
+                          playScratchSound();
+                        }}
+                        onMouseEnter={handleMouseEnter}
+                        className="flex items-start gap-3 hover:text-[var(--accent)] transition-colors select-none font-mono text-left cursor-pointer focus:outline-none w-full"
+                      >
+                        <span className="text-[var(--accent)] font-bold text-sm leading-none flex-shrink-0 whitespace-nowrap pt-0.5">
+                          {simulateMonthlyUnlock ? '[■]' : '[ ]'}
+                        </span>
+                        <span className="lowercase">bypass last day monthly lock</span>
+                      </button>
+
+                      {/* Option 3: Tactile clicks */}
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const next = !isKeyboardSoundActive;
+                          setIsKeyboardSoundActive(next);
+                          localStorage.setItem('keyboard_sound_active', String(next));
+                          playTickSound();
+                        }}
+                        onMouseEnter={handleMouseEnter}
+                        className="flex items-start gap-3 hover:text-[var(--accent)] transition-colors select-none font-mono text-left cursor-pointer focus:outline-none w-full"
+                      >
+                        <span className="text-[var(--accent)] font-bold text-sm leading-none flex-shrink-0 whitespace-nowrap pt-0.5">
+                          {isKeyboardSoundActive ? '[■]' : '[ ]'}
+                        </span>
+                        <span className="lowercase">tactile keyboard clicks</span>
+                      </button>
+
+                      {/* Option 4: Hover sounds */}
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const next = !isHoverSoundActive;
+                          setIsHoverSoundActive(next);
+                          localStorage.setItem('hover_sounds_active', String(next));
+                          playTickSound();
+                        }}
+                        onMouseEnter={handleMouseEnter}
+                        className="flex items-start gap-3 hover:text-[var(--accent)] transition-colors select-none font-mono text-left cursor-pointer focus:outline-none w-full"
+                      >
+                        <span className="text-[var(--accent)] font-bold text-sm leading-none flex-shrink-0 whitespace-nowrap pt-0.5">
+                          {isHoverSoundActive ? '[■]' : '[ ]'}
+                        </span>
+                        <span className="lowercase">tactile hover sounds</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Sync Settings */}
-                  <div className="flex items-center gap-2 font-mono text-2xs select-none">
-                    <span>sync key:</span>
-                    <input
-                      type="password"
-                      value={syncKey}
-                      onChange={(e) => {
-                        setSyncKey(e.target.value);
-                        localStorage.setItem('sync_key', e.target.value);
-                      }}
-                      placeholder="api_secret"
-                      className="bg-[var(--code-bg)] border border-[var(--border)] px-2 py-0.5 rounded text-2xs text-[var(--text-h)] focus:outline-none focus:border-[var(--accent)] font-mono w-24"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        triggerSync(syncKey);
-                        playTickSound();
-                      }}
-                      className="text-3xs font-mono text-[var(--text-muted)] border border-[var(--border)] px-1.5 py-0.5 rounded hover:bg-[var(--text-h)] hover:text-[var(--bg)] transition-all cursor-pointer lowercase focus:outline-none"
-                    >
-                      [sync now]
-                    </button>
-                  </div>
+                  <div className="space-y-4">
+                    <h4 className="font-bold border-b border-[var(--border)] pb-1.5 lowercase text-[var(--text-h)] tracking-wide">date travel & sync</h4>
+                    <div className="space-y-4">
+                      {/* Travel date adjustment */}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-3xs text-[var(--text-muted)] lowercase font-mono">travel date:</span>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center border border-[var(--border)] bg-[var(--code-bg)] rounded overflow-hidden">
+                            {/* Year segment */}
+                            <div className="flex flex-col items-center px-2 py-0.5 border-r border-[var(--border)]">
+                              <button type="button" onClick={() => adjustDate('year', 1)} onMouseEnter={handleMouseEnter} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▲</button>
+                              <span className="text-[var(--text-h)] font-bold my-0.5">{currentDate.getFullYear()}</span>
+                              <button type="button" onClick={() => adjustDate('year', -1)} onMouseEnter={handleMouseEnter} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▼</button>
+                            </div>
+                            {/* Month segment */}
+                            <div className="flex flex-col items-center px-2 py-0.5 border-r border-[var(--border)]">
+                              <button type="button" onClick={() => adjustDate('month', 1)} onMouseEnter={handleMouseEnter} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▲</button>
+                              <span className="text-[var(--text-h)] font-bold my-0.5">{String(currentDate.getMonth() + 1).padStart(2, '0')}</span>
+                              <button type="button" onClick={() => adjustDate('month', -1)} onMouseEnter={handleMouseEnter} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▼</button>
+                            </div>
+                            {/* Day segment */}
+                            <div className="flex flex-col items-center px-2 py-0.5">
+                              <button type="button" onClick={() => adjustDate('day', 1)} onMouseEnter={handleMouseEnter} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▲</button>
+                              <span className="text-[var(--text-h)] font-bold my-0.5">{String(currentDate.getDate()).padStart(2, '0')}</span>
+                              <button type="button" onClick={() => adjustDate('day', -1)} onMouseEnter={handleMouseEnter} className="text-[8px] hover:text-[var(--accent)] cursor-pointer focus:outline-none leading-none select-none">▼</button>
+                            </div>
+                          </div>
 
+                          {/* Reset date button */}
+                          {activeDateKey !== formatDateString(new Date()) && (
+                            <Magnetic>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setCustomDateStr('');
+                                  resetToToday();
+                                }}
+                                onMouseEnter={handleMouseEnter}
+                                className="text-[9px] text-[var(--accent)] hover:underline flex items-center gap-0.5 cursor-pointer lowercase font-mono focus:outline-none border border-[var(--border)] px-1.5 py-1 rounded bg-[var(--code-bg)]"
+                              >
+                                <Undo className="w-2.5 h-2.5" /> [reset]
+                              </button>
+                            </Magnetic>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Sync secret */}
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-3xs text-[var(--text-muted)] lowercase font-mono">sync secret key:</span>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="password"
+                            value={syncKey}
+                            onChange={(e) => {
+                              setSyncKey(e.target.value);
+                              localStorage.setItem('sync_key', e.target.value);
+                            }}
+                            onMouseEnter={handleMouseEnter}
+                            placeholder="api_secret"
+                            className="bg-[var(--code-bg)] border border-[var(--border)] px-2 py-1 rounded text-3xs text-[var(--text-h)] focus:outline-none focus:border-[var(--accent)] font-mono w-full"
+                          />
+                          <Magnetic>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                triggerSync(syncKey);
+                                playTickSound();
+                              }}
+                              onMouseEnter={handleMouseEnter}
+                              className="text-3xs font-mono text-[var(--text-muted)] border border-[var(--border)] px-2 py-1 rounded hover:bg-[var(--text-h)] hover:text-[var(--bg)] transition-all cursor-pointer lowercase focus:outline-none whitespace-nowrap"
+                            >
+                              [sync]
+                            </button>
+                          </Magnetic>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                
-                <div className="text-3xs text-[var(--text-muted)] font-mono leading-relaxed border-t border-[var(--border)] pt-3 select-none lowercase">
+
+                {/* Info footer */}
+                <div className="text-[9px] text-[var(--text-muted)] font-mono leading-relaxed border-t border-[var(--border)] pt-3 select-none lowercase">
                   $ info: sandbox overrides are applied locally to localstorage caches. these settings enable rapid manual testing of calendars, completion states, and lock conditions.
                 </div>
-              </div>
-            </details>
-          </footer>
-        )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
         {hoveredTooltip && (
           <div 
             className="fixed z-[9999] pointer-events-none bg-[var(--dropdown-bg)] border-[1.5px] border-[var(--text-h)] p-2.5 rounded font-mono text-3xs text-[var(--text)] shadow-[3px_3px_0_var(--text-h)] select-none lowercase"
@@ -1606,6 +1994,121 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Ditto Custom Cursor Follower */}
+        <AnimatePresence>
+          {isHoveringGreetingOrPfp && (
+            <motion.div
+              style={{
+                position: 'fixed',
+                left: 0,
+                top: 0,
+                x: cursorX,
+                y: cursorY,
+                pointerEvents: 'none',
+                zIndex: 999999,
+              }}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={{ type: "spring", stiffness: 400, damping: 22 }}
+              className="flex items-center justify-center select-none"
+            >
+              <svg 
+                viewBox="0 0 498.9 438.9" 
+                className="w-14 h-14 overflow-visible drop-shadow-[2px_2px_0_rgba(0,0,0,0.4)]"
+              >
+                {/* Frame 1 */}
+                {dittoFrame === 1 && (
+                  <>
+                    <path 
+                      d="M422.9,15v15h16v15h15v106h-15v46h-16v45h-15v91h15v30h16v31h-16v15h-15v15H227v-15h-76v15H91v-15H60v-15H45v-61h15v-30h16v-31h15v-60H76v-45h15v-16h15v-15h30v-15h45v-15h31V91h15V76h15V61h45v15h46V45h15V30h15V15H422.9z" 
+                      fill="#b860e0" 
+                      stroke="#000000" 
+                      strokeWidth={12} 
+                    />
+                    <path 
+                      d="M287,167v15h-15v-15H287z M181,197v15h-15v-15H181z M287,227v15h-45v15h-45v-15h45v-15H287z" 
+                      fill="#383838" 
+                      stroke="#383838" 
+                      strokeWidth={1}
+                    />
+                    <path 
+                      d="M287,91v30h-30v15h-30v-30h30V91H287z" 
+                      fill="#f8f8f8" 
+                    />
+                  </>
+                )}
+
+                {/* Frame 2 */}
+                {dittoFrame === 2 && (
+                  <>
+                    <path 
+                      d="M407.9,121v15h31v15h15v31h15v45h-15v30h-15v31h-16v45h16v15h15v46h-15v15h-16v15h-90v-15H197v15H60v-15H30v-15H15v-61h15v-30h15v-46h15v-45h16v-15h15v-15h45v15h30v-15h31v-15h15v-16h30v-15h60v15h46v-15h30v-15H407.9z" 
+                      fill="#b860e0" 
+                      stroke="#000000" 
+                      strokeWidth={12} 
+                    />
+                    <path 
+                      d="M287,242v15h-15v-15H287z M197,257v15h-16v-15H197z M287,303v15h-90v-15H287z" 
+                      fill="#383838" 
+                      stroke="#383838" 
+                      strokeWidth={1}
+                    />
+                    <path 
+                      d="M272,167v30h-30v15h-30v-30h30v-15H272z" 
+                      fill="#f8f8f8" 
+                    />
+                  </>
+                )}
+
+                {/* Frame 3 */}
+                {dittoFrame === 3 && (
+                  <>
+                    <path 
+                      d="M106,91v15h30v15h61v-15h60v15h30v15h15v15h31v16h30v-16h45v16h15v15h16v45h-16v45h16v31h15v15h15v76h-15v15h-15v15H318v-15H151v15H60v-15H45v-15H30v-31h15v-30h15v-45H45v-31H30v-45H15v-61h15v-30h15v-15h31V91H106z" 
+                      fill="#b860e0" 
+                      stroke="#000000" 
+                      strokeWidth={12} 
+                    />
+                    <path 
+                      d="M212,212v15h-15v-15H212z M302,227v15h-15v-15H302z M287,272v16h-90v-16H287z" 
+                      fill="#383838" 
+                      stroke="#383838" 
+                      strokeWidth={1}
+                    />
+                    <path 
+                      d="M227,121v30h-30v16h-31v-31h31v-15H227z" 
+                      fill="#f8f8f8" 
+                    />
+                  </>
+                )}
+
+                {/* Frame 4 */}
+                {dittoFrame === 4 && (
+                  <>
+                    <path 
+                      d="M136,76v15h15v15h30V91h16V76h45v15h15v15h15v15h30v15h61v15h15v16h15v15h15v45h-15v61h15v30h15v15h16v61h-16v15h-30v-15h-91v15H76v-15H60v-15H45v-46h15v-30h16v-61H60v-30H45v-30H30v-46h15v-30h15v-15h16V91h15V76H136z" 
+                      fill="#b860e0" 
+                      stroke="#000000" 
+                      strokeWidth={12} 
+                    />
+                    <path 
+                      d="M212,182v15h-15v-15H212z M318,212v15h-16v-15H318z M242,242v15h45v15h-45v-15h-45v-15 H242z" 
+                      fill="#383838" 
+                      stroke="#383838" 
+                      strokeWidth={1}
+                    />
+                    <path 
+                      d="M121,91v15h15v30h-30v-15H91V91H121z" 
+                      fill="#f8f8f8" 
+                    />
+                  </>
+                )}
+              </svg>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </ClickSpark>
   );

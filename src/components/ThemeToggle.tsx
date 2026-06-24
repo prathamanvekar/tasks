@@ -2,7 +2,7 @@ import React from 'react';
 
 interface ThemeToggleProps {
   isDark: boolean;
-  onToggle: () => void;
+  onToggle: (e: React.MouseEvent<HTMLInputElement>) => void;
 }
 
 const ThemeToggle: React.FC<ThemeToggleProps> = ({ isDark, onToggle }) => {
@@ -13,7 +13,8 @@ const ThemeToggle: React.FC<ThemeToggleProps> = ({ isDark, onToggle }) => {
           id="theme-toggle-input" 
           type="checkbox" 
           checked={isDark} 
-          onChange={onToggle}
+          onChange={() => {}}
+          onClick={onToggle}
         />
         <div className="slider round">
           <div className="sun-moon">

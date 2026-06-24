@@ -178,3 +178,121 @@ export function playSuccessSound() {
     console.warn("Failed to play success sound:", e);
   }
 }
+
+// Satisfying mechanical keyboard click with randomized pitch variation
+export function playMechanicalKeyboardClick() {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+
+    // Introduce organic variation in pitch and volume
+    const pitchOffset = (Math.random() - 0.5) * 60; // +/- 30Hz
+    const volumeOffset = (Math.random() - 0.5) * 0.01; // +/- 1% volume
+    
+    // 1. High frequency click transient (noise snap)
+    const clickDuration = 0.005; // 5ms
+    const clickBuffer = ctx.createBuffer(1, ctx.sampleRate * clickDuration, ctx.sampleRate);
+    const clickData = clickBuffer.getChannelData(0);
+    for (let i = 0; i < clickBuffer.length; i++) {
+      clickData[i] = Math.random() * 2 - 1;
+    }
+    const clickSource = ctx.createBufferSource();
+    clickSource.buffer = clickBuffer;
+
+    const clickFilter = ctx.createBiquadFilter();
+    clickFilter.type = 'highpass';
+    clickFilter.frequency.value = 6000 + pitchOffset * 10; // offset click resonance
+
+    const clickGain = ctx.createGain();
+    clickGain.gain.setValueAtTime(0.025 + volumeOffset, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.0001, now + clickDuration);
+
+    clickSource.connect(clickFilter);
+    clickFilter.connect(clickGain);
+    clickGain.connect(ctx.destination);
+
+    clickSource.start(now);
+    clickSource.stop(now + clickDuration);
+
+    // 2. Low-mid switch body vibration (bottoming out)
+    const bodyDuration = 0.018; // 18ms
+    const osc = ctx.createOscillator();
+    const bodyGain = ctx.createGain();
+
+    osc.type = 'sine';
+    // Randomize primary click frequency to avoid robotic sound
+    osc.frequency.setValueAtTime(220 + pitchOffset, now);
+    osc.frequency.exponentialRampToValueAtTime(140 + pitchOffset / 2, now + bodyDuration);
+
+    bodyGain.gain.setValueAtTime(0.018 + volumeOffset, now);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + bodyDuration);
+
+    osc.connect(bodyGain);
+    bodyGain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + bodyDuration);
+  } catch (e) {
+    console.warn("Failed to play mechanical click sound:", e);
+  }
+}
+
+// Low-frequency woodblock style metronome tick for focus mode
+export function playMetronomeTick() {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+    const duration = 0.025; // 25ms
+
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(280, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + duration);
+
+    gainNode.gain.setValueAtTime(0.025, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    // Filter to make it warmer and woodblock-like
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 600;
+
+    osc.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + duration);
+  } catch (e) {
+    console.warn("Failed to play metronome tick:", e);
+  }
+}
+
+// Ultra-short, soft click sound for hover interactions
+export function playHoverTick() {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+    const duration = 0.005; // 5ms click
+
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1400, now);
+
+    gainNode.gain.setValueAtTime(0.08, now); // clear, audible tick pop
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + duration);
+  } catch (e) {
+    console.warn("Failed to play hover tick sound:", e);
+  }
+}
+

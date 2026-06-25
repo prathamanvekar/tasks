@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion';
 import gsap from 'gsap';
 import { 
-  CheckCircle2, 
   Calendar, 
   ChevronLeft, 
   ChevronRight, 
@@ -20,10 +19,9 @@ import Checkbox from './components/Checkbox';
 import Input from './components/Input';
 import SplitText from './components/SplitText';
 import { playSuccessSound, playTickSound, playScratchSound, playMechanicalKeyboardClick, playHoverTick } from './utils/sounds';
-import { Heatmap } from './components/Heatmap';
 import { Magnetic } from './components/Magnetic';
 
-const TABS_ORDER = ['daily', 'weekly', 'monthly', 'insights'] as const;
+const TABS_ORDER = ['inbox', 'daily', 'weekly', 'monthly', 'pomo', 'insights'] as const;
 
 const tabVariants = {
   enter: (direction: number) => ({
@@ -219,7 +217,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'insights'>('daily');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'daily' | 'weekly' | 'monthly' | 'pomo' | 'insights'>('daily');
   const [direction, setDirection] = useState(0);
 
   // Tactile hover ticks state
@@ -227,7 +225,7 @@ export default function App() {
     return localStorage.getItem('hover_sounds_active') === 'true';
   });
 
-  const handleTabChange = (newTab: 'daily' | 'weekly' | 'monthly' | 'insights') => {
+  const handleTabChange = (newTab: 'inbox' | 'daily' | 'weekly' | 'monthly' | 'pomo' | 'insights') => {
     const currentIndex = TABS_ORDER.indexOf(activeTab);
     const newIndex = TABS_ORDER.indexOf(newTab);
     setDirection(newIndex > currentIndex ? 1 : -1);
@@ -258,9 +256,89 @@ export default function App() {
   // Monthly Tasks State
   const [monthlyTasks, setMonthlyTasks] = useState<MonthlyTaskState>(DEFAULT_MONTHLY);
 
+  interface InboxTask {
+    id: string;
+    text: string;
+    completed: boolean;
+    position: number;
+  }
+
+  // Inbox State
+  const [inboxTasks, setInboxTasks] = useState<InboxTask[]>([]);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const editingTaskIdRef = useRef<string | null>(null);
+  editingTaskIdRef.current = editingTaskId;
+  const [editingText, setEditingText] = useState('');
+  const [newInboxText, setNewInboxText] = useState('');
+
   // Streak State
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
+  const [weeklyStreak, setWeeklyStreak] = useState(0);
+  const [maxWeeklyStreak, setMaxWeeklyStreak] = useState(0);
+  const [monthlyStreak, setMonthlyStreak] = useState(0);
+  const [maxMonthlyStreak, setMaxMonthlyStreak] = useState(0);
+
+  // Pomodoro Timer State
+  const [pomoMode, setPomoMode] = useState<'work' | 'shortBreak' | 'longBreak'>('work');
+  const [pomoTime, setPomoTime] = useState(1500); // default to 25m
+  const [pomoRunning, setPomoRunning] = useState(false);
+  const [pomoCyclesCompleted, setPomoCyclesCompleted] = useState(0);
+  const [pomoSuggestion, setPomoSuggestion] = useState<'work' | 'shortBreak' | 'longBreak' | null>(null);
+
+  const pomoModeRef = useRef(pomoMode);
+  pomoModeRef.current = pomoMode;
+  const pomoCyclesRef = useRef(pomoCyclesCompleted);
+  pomoCyclesRef.current = pomoCyclesCompleted;
+
+  useEffect(() => {
+    let timerId: any = null;
+    if (pomoRunning) {
+      timerId = setInterval(() => {
+        setPomoTime((prev) => {
+          if (prev <= 1) {
+            setPomoRunning(false);
+            clearInterval(timerId);
+            playSuccessSound();
+
+            if (pomoModeRef.current === 'work') {
+              const nextCycles = pomoCyclesRef.current + 1;
+              setPomoCyclesCompleted(nextCycles);
+              if (nextCycles >= 4) {
+                setPomoSuggestion('longBreak');
+              } else {
+                setPomoSuggestion('shortBreak');
+              }
+            } else {
+              setPomoSuggestion('work');
+            }
+
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [pomoRunning]);
+
+  const handlePomoModeChange = (mode: 'work' | 'shortBreak' | 'longBreak') => {
+    setPomoMode(mode);
+    setPomoRunning(false);
+    setPomoSuggestion(null); // Clear suggestion on explicit mode change
+    if (mode === 'work') setPomoTime(1500);
+    else if (mode === 'shortBreak') setPomoTime(300);
+    else if (mode === 'longBreak') setPomoTime(600);
+    playTickSound();
+  };
+
+  // Selected cell overlay state
+  const [selectedCellInfo, setSelectedCellInfo] = useState<{
+    type: 'daily' | 'weekly' | 'monthly';
+    key: string;
+  } | null>(null);
 
   // Sync State
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error' | 'unconfigured'>('unconfigured');
@@ -340,6 +418,11 @@ export default function App() {
         });
       }
 
+      if (data.inbox) {
+        localStorage.setItem('tasks_inbox', JSON.stringify(data.inbox));
+        setInboxTasks(data.inbox);
+      }
+
       setSyncStatus('synced');
 
       // Refresh current states from local storage
@@ -355,6 +438,9 @@ export default function App() {
       const monthlySaved = localStorage.getItem(`tasks_monthly_${activeMonthStr}`);
       if (monthlySaved) setMonthlyTasks(JSON.parse(monthlySaved));
 
+      const inboxSaved = localStorage.getItem('tasks_inbox');
+      if (inboxSaved) setInboxTasks(JSON.parse(inboxSaved));
+
       calculateStreaks();
     } catch {
       setSyncStatus('offline');
@@ -362,7 +448,7 @@ export default function App() {
   };
 
   const pushSync = async (payload: {
-    type: 'daily' | 'weekly' | 'monthly';
+    type: 'daily' | 'weekly' | 'monthly' | 'inbox';
     dateKey?: string;
     weekKey?: string;
     monthKey?: string;
@@ -409,7 +495,7 @@ export default function App() {
     dateStr: string;
     x: number;
     y: number;
-    tasks: { label: string; checked: boolean }[];
+    tasks: { label: string; status: 'checked' | 'not-done' | 'pending' }[];
   } | null>(null);
 
   const getTasksForDate = (dateKey: string) => {
@@ -428,12 +514,12 @@ export default function App() {
       } catch {}
     }
     return [
-      { label: 'boot.dev', checked: state.bootdev },
-      { label: 'neetcode', checked: state.neetcode },
-      { label: 'ai learning', checked: state.ailearning },
-      { label: 'twitter post', checked: state.twitter },
-      { label: 'job hunt', checked: state.jobhunt },
-    ];
+      { label: 'boot.dev', status: state.bootdev ? 'checked' : 'pending' },
+      { label: 'neetcode', status: state.neetcode ? 'checked' : 'pending' },
+      { label: 'ai learning', status: state.ailearning ? 'checked' : 'pending' },
+      { label: 'twitter post', status: state.twitter ? 'checked' : 'pending' },
+      { label: 'job hunt', status: state.jobhunt ? 'checked' : 'pending' },
+    ] as { label: string; status: 'checked' | 'not-done' | 'pending' }[];
   };
 
   // Load theme preference on load
@@ -446,6 +532,16 @@ export default function App() {
     }
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }, [isDark]);
+
+  // Load inbox tasks from local storage on mount
+  useEffect(() => {
+    const inboxSaved = localStorage.getItem('tasks_inbox');
+    if (inboxSaved) {
+      try {
+        setInboxTasks(JSON.parse(inboxSaved));
+      } catch {}
+    }
+  }, []);
 
   // Circular View Transition Theme Toggler
   const handleThemeToggle = (e: React.MouseEvent<HTMLInputElement>) => {
@@ -573,6 +669,7 @@ export default function App() {
         playTickSound();
       } else if (e.key === 'Escape') {
         setShowSandbox(false);
+        setSelectedCellInfo(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -706,6 +803,158 @@ export default function App() {
     
     setStreak(displayStreak);
     setMaxStreak(maxRun);
+
+    // 2. Weekly Streaks (scan last 52 weeks)
+    let curWeeklyRun = 0;
+    let maxWeeklyRun = 0;
+    let displayWeeklyStreak = 0;
+    let countingWeeklyDisplay = true;
+
+    const weeklyScanDate = new Date();
+    const currentWeekStr = getWeekString(weeklyScanDate);
+    const currentWeekVal = localStorage.getItem(`tasks_weekly_${currentWeekStr}`);
+    let currentWeekDone = false;
+    if (currentWeekVal) {
+      const state = JSON.parse(currentWeekVal) as WeeklyTaskState;
+      currentWeekDone = !!state.isSaved && 
+        state.oss1.trim() !== '' &&
+        state.oss2.trim() !== '' &&
+        state.projectRepo.trim() !== '' &&
+        state.codechef.trim() !== '' &&
+        state.codeforces.trim() !== '' &&
+        state.leetcode.trim() !== '' &&
+        state.hackathon.trim() !== '' &&
+        state.ctf.trim() !== '' &&
+        state.revision.trim() !== '';
+    }
+
+    const prevWeekDate = new Date();
+    prevWeekDate.setDate(prevWeekDate.getDate() - 7);
+    const prevWeekStr = getWeekString(prevWeekDate);
+    const prevWeekVal = localStorage.getItem(`tasks_weekly_${prevWeekStr}`);
+    let prevWeekDone = false;
+    if (prevWeekVal) {
+      const state = JSON.parse(prevWeekVal) as WeeklyTaskState;
+      prevWeekDone = !!state.isSaved && 
+        state.oss1.trim() !== '' &&
+        state.oss2.trim() !== '' &&
+        state.projectRepo.trim() !== '' &&
+        state.codechef.trim() !== '' &&
+        state.codeforces.trim() !== '' &&
+        state.leetcode.trim() !== '' &&
+        state.hackathon.trim() !== '' &&
+        state.ctf.trim() !== '' &&
+        state.revision.trim() !== '';
+    }
+
+    const canHaveWeeklyStreak = currentWeekDone || prevWeekDone;
+
+    for (let i = 0; i < 52; i++) {
+      const testDate = new Date();
+      testDate.setDate(testDate.getDate() - i * 7);
+      const wKey = getWeekString(testDate);
+      const val = localStorage.getItem(`tasks_weekly_${wKey}`);
+      let isDone = false;
+      if (val) {
+        const state = JSON.parse(val) as WeeklyTaskState;
+        isDone = !!state.isSaved && 
+          state.oss1.trim() !== '' &&
+          state.oss2.trim() !== '' &&
+          state.projectRepo.trim() !== '' &&
+          state.codechef.trim() !== '' &&
+          state.codeforces.trim() !== '' &&
+          state.leetcode.trim() !== '' &&
+          state.hackathon.trim() !== '' &&
+          state.ctf.trim() !== '' &&
+          state.revision.trim() !== '';
+      }
+
+      if (isDone) {
+        curWeeklyRun++;
+        if (curWeeklyRun > maxWeeklyRun) maxWeeklyRun = curWeeklyRun;
+        
+        if (canHaveWeeklyStreak && countingWeeklyDisplay) {
+          if (currentWeekDone || i > 0) {
+            displayWeeklyStreak++;
+          }
+        }
+      } else {
+        curWeeklyRun = 0;
+        if (i > 0 || currentWeekDone) {
+          countingWeeklyDisplay = false;
+        }
+      }
+    }
+
+    setWeeklyStreak(displayWeeklyStreak);
+    setMaxWeeklyStreak(maxWeeklyRun);
+
+    // 3. Monthly Streaks (scan last 24 months)
+    let curMonthlyRun = 0;
+    let maxMonthlyRun = 0;
+    let displayMonthlyStreak = 0;
+    let countingMonthlyDisplay = true;
+
+    const monthlyScanDate = new Date();
+    const currentMonthStr = getMonthString(monthlyScanDate);
+    const currentMonthVal = localStorage.getItem(`tasks_monthly_${currentMonthStr}`);
+    let currentMonthDone = false;
+    if (currentMonthVal) {
+      const state = JSON.parse(currentMonthVal) as MonthlyTaskState;
+      currentMonthDone = !!state.isSaved && 
+        state.blog1.trim() !== '' &&
+        state.blog2.trim() !== '' &&
+        state.langCommit.trim() !== '';
+    }
+
+    const prevMonthDate = new Date();
+    prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+    const prevMonthStr = getMonthString(prevMonthDate);
+    const prevMonthVal = localStorage.getItem(`tasks_monthly_${prevMonthStr}`);
+    let prevMonthDone = false;
+    if (prevMonthVal) {
+      const state = JSON.parse(prevMonthVal) as MonthlyTaskState;
+      prevMonthDone = !!state.isSaved && 
+        state.blog1.trim() !== '' &&
+        state.blog2.trim() !== '' &&
+        state.langCommit.trim() !== '';
+    }
+
+    const canHaveMonthlyStreak = currentMonthDone || prevMonthDone;
+
+    for (let i = 0; i < 24; i++) {
+      const testDate = new Date();
+      testDate.setMonth(testDate.getMonth() - i);
+      const mKey = getMonthString(testDate);
+      const val = localStorage.getItem(`tasks_monthly_${mKey}`);
+      let isDone = false;
+      if (val) {
+        const state = JSON.parse(val) as MonthlyTaskState;
+        isDone = !!state.isSaved && 
+          state.blog1.trim() !== '' &&
+          state.blog2.trim() !== '' &&
+          state.langCommit.trim() !== '';
+      }
+
+      if (isDone) {
+        curMonthlyRun++;
+        if (curMonthlyRun > maxMonthlyRun) maxMonthlyRun = curMonthlyRun;
+        
+        if (canHaveMonthlyStreak && countingMonthlyDisplay) {
+          if (currentMonthDone || i > 0) {
+            displayMonthlyStreak++;
+          }
+        }
+      } else {
+        curMonthlyRun = 0;
+        if (i > 0 || currentMonthDone) {
+          countingMonthlyDisplay = false;
+        }
+      }
+    }
+
+    setMonthlyStreak(displayMonthlyStreak);
+    setMaxMonthlyStreak(maxMonthlyRun);
   };
 
   const updateDailyTask = (key: keyof DailyTaskState, val: boolean) => {
@@ -726,6 +975,88 @@ export default function App() {
     }
   };
 
+  const addInboxTask = (text: string) => {
+    if (text.trim() === '') return;
+    const newId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+    const newTask: InboxTask = {
+      id: newId,
+      text: text.trim(),
+      completed: false,
+      position: inboxTasks.length ? Math.max(...inboxTasks.map(t => t.position)) + 1 : 0
+    };
+    const newTasks = [...inboxTasks, newTask];
+    setInboxTasks(newTasks);
+    localStorage.setItem('tasks_inbox', JSON.stringify(newTasks));
+    pushSync({
+      type: 'inbox',
+      data: newTasks
+    });
+    playTickSound();
+  };
+
+  const deleteInboxTask = (id: string) => {
+    const newTasks = inboxTasks.filter(t => t.id !== id);
+    const formatted = newTasks.map((t, idx) => ({ ...t, position: idx }));
+    setInboxTasks(formatted);
+    localStorage.setItem('tasks_inbox', JSON.stringify(formatted));
+    pushSync({
+      type: 'inbox',
+      data: formatted
+    });
+    playScratchSound();
+  };
+
+  const toggleInboxTask = (id: string) => {
+    const newTasks = inboxTasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+    setInboxTasks(newTasks);
+    localStorage.setItem('tasks_inbox', JSON.stringify(newTasks));
+    pushSync({
+      type: 'inbox',
+      data: newTasks
+    });
+    
+    // Play completion sound if task toggled to true
+    const nextTask = newTasks.find(t => t.id === id);
+    if (nextTask && nextTask.completed) {
+      playSuccessSound();
+    } else {
+      playScratchSound();
+    }
+  };
+
+  const editInboxTask = (id: string, newText: string) => {
+    if (newText.trim() === '') return;
+    const newTasks = inboxTasks.map(t => t.id === id ? { ...t, text: newText.trim() } : t);
+    setInboxTasks(newTasks);
+    localStorage.setItem('tasks_inbox', JSON.stringify(newTasks));
+    pushSync({
+      type: 'inbox',
+      data: newTasks
+    });
+    playTickSound();
+  };
+
+  const moveInboxTask = (id: string, direction: 'up' | 'down') => {
+    const idx = inboxTasks.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= inboxTasks.length) return;
+
+    const copy = [...inboxTasks];
+    const temp = copy[idx];
+    copy[idx] = copy[targetIdx];
+    copy[targetIdx] = temp;
+
+    const formatted = copy.map((t, index) => ({ ...t, position: index }));
+    setInboxTasks(formatted);
+    localStorage.setItem('tasks_inbox', JSON.stringify(formatted));
+    pushSync({
+      type: 'inbox',
+      data: formatted
+    });
+    playTickSound();
+  };
+
   // Submission complete checks: all fields must be non-empty
   const isWeeklyComplete = 
     weeklyTasks.oss1.trim() !== '' &&
@@ -743,9 +1074,7 @@ export default function App() {
     monthlyTasks.blog2.trim() !== '' &&
     monthlyTasks.langCommit.trim() !== '';
 
-  // Dynamic submitted flag (resets immediately if a field becomes empty)
-  const isWeeklySubmitted = !!(weeklyTasks.isSaved && isWeeklyComplete);
-  const isMonthlySubmitted = !!(monthlyTasks.isSaved && isMonthlyComplete);
+
 
   const updateWeeklyField = (field: keyof WeeklyTaskState, val: string) => {
     const nextState = { ...weeklyTasks, [field]: val };
@@ -778,6 +1107,18 @@ export default function App() {
     nextState.isSaved = checkComplete ? monthlyTasks.isSaved : false;
     setMonthlyTasks(nextState);
     localStorage.setItem(`tasks_monthly_${activeMonthKey}`, JSON.stringify(nextState));
+  };
+
+  const toggleWeeklyFieldNotDone = (field: keyof WeeklyTaskState) => {
+    const currentVal = weeklyTasks[field] || '';
+    const nextVal = currentVal === '__NOT_DONE__' ? '' : '__NOT_DONE__';
+    updateWeeklyField(field, nextVal);
+  };
+
+  const toggleMonthlyFieldNotDone = (field: keyof MonthlyTaskState) => {
+    const currentVal = monthlyTasks[field] || '';
+    const nextVal = currentVal === '__NOT_DONE__' ? '' : '__NOT_DONE__';
+    updateMonthlyField(field, nextVal);
   };
 
   const handleWeeklySubmit = (e: React.FormEvent) => {
@@ -912,6 +1253,75 @@ export default function App() {
     playTickSound();
   };
 
+  const dailyRate = (() => {
+    let totals = 0;
+    let completed = 0;
+    for (let i = 0; i < 30; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = `tasks_daily_${formatDateString(d)}`;
+      const val = localStorage.getItem(key);
+      if (val) {
+        totals++;
+        const state = JSON.parse(val);
+        if (state.bootdev && state.neetcode && state.ailearning && state.twitter && state.jobhunt) {
+          completed++;
+        }
+      }
+    }
+    return totals > 0 ? Math.round((completed / totals) * 100) : 0;
+  })();
+
+  const weeklyRate = (() => {
+    let totals = 0;
+    let completed = 0;
+    for (let i = 0; i < 11; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i * 7);
+      const wKey = getWeekString(d);
+      const val = localStorage.getItem(`tasks_weekly_${wKey}`);
+      if (val) {
+        totals++;
+        const state = JSON.parse(val);
+        if (state.isSaved && 
+            state.oss1.trim() !== '' &&
+            state.oss2.trim() !== '' &&
+            state.projectRepo.trim() !== '' &&
+            state.codechef.trim() !== '' &&
+            state.codeforces.trim() !== '' &&
+            state.leetcode.trim() !== '' &&
+            state.hackathon.trim() !== '' &&
+            state.ctf.trim() !== '' &&
+            state.revision.trim() !== '') {
+          completed++;
+        }
+      }
+    }
+    return totals > 0 ? Math.round((completed / totals) * 100) : 0;
+  })();
+
+  const monthlyRate = (() => {
+    let totals = 0;
+    let completed = 0;
+    for (let i = 0; i < 11; i++) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const mKey = getMonthString(d);
+      const val = localStorage.getItem(`tasks_monthly_${mKey}`);
+      if (val) {
+        totals++;
+        const state = JSON.parse(val);
+        if (state.isSaved && 
+            state.blog1.trim() !== '' &&
+            state.blog2.trim() !== '' &&
+            state.langCommit.trim() !== '') {
+          completed++;
+        }
+      }
+    }
+    return totals > 0 ? Math.round((completed / totals) * 100) : 0;
+  })();
+
   if (loading) {
     return <Loader onComplete={() => setLoading(false)} />;
   }
@@ -1044,7 +1454,7 @@ export default function App() {
 
         {/* CENTERED TABS NAVIGATION */}
         <nav className="flex justify-center border-b border-[var(--border)] mb-10 relative">
-          {(['daily', 'weekly', 'monthly', 'insights'] as const).map((tab) => {
+          {TABS_ORDER.map((tab) => {
             const isActive = activeTab === tab;
             return (
               <Magnetic key={tab}>
@@ -1074,6 +1484,222 @@ export default function App() {
         <main className="relative min-h-[400px]">
           <AnimatePresence mode="wait">
             
+            {/* INBOX PANEL */}
+            {activeTab === 'inbox' && (
+              <motion.div
+                key="inbox"
+                custom={direction}
+                variants={tabVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={tabTransition}
+                className="space-y-8 tab-content-wrapper"
+              >
+                {/* Inbox header */}
+                <div className="space-y-3">
+                  <div className="flex justify-between text-xs font-mono text-[var(--text-muted)] lowercase">
+                    <span>inbox tasks index</span>
+                    <span>{inboxTasks.filter(t => t.completed).length} / {inboxTasks.length} completed</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="h-3.5 border-[1.5px] border-[var(--text-h)] rounded-sm bg-[var(--code-bg)] relative overflow-hidden shadow-[2px_2px_0_var(--text-h)]">
+                    <motion.div 
+                      className="h-full bg-[var(--accent)]"
+                      initial={{ width: 0 }}
+                      animate={{ 
+                        width: inboxTasks.length ? `${(inboxTasks.filter(t => t.completed).length / inboxTasks.length) * 100}%` : '0%' 
+                      }}
+                      transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+                    />
+                  </div>
+                </div>
+
+                {/* List Container Card */}
+                <motion.div 
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="show"
+                  className="bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-6 rounded-lg space-y-6"
+                >
+                  <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                    <h2 className="text-sm font-bold text-[var(--text-h)] lowercase">
+                      inbox checklist
+                    </h2>
+                    <span className="font-mono text-2xs text-[var(--accent)]">[ {inboxTasks.length} items ]</span>
+                  </div>
+
+                  {/* Tasks List */}
+                  <motion.div layout className="space-y-4 max-h-[400px] overflow-y-auto overflow-x-hidden no-scrollbar pr-1">
+                    <AnimatePresence mode="popLayout">
+                      {inboxTasks.length === 0 ? (
+                        <motion.div 
+                          key="empty-inbox"
+                          layout
+                          initial={{ opacity: 0, y: 10 }} 
+                          animate={{ opacity: 1, y: 0 }} 
+                          exit={{ opacity: 0, y: -10 }}
+                          className="py-12 text-center text-xs font-mono text-[var(--text-muted)] lowercase italic"
+                        >
+                          inbox is empty. add tasks below.
+                        </motion.div>
+                      ) : (
+                        [...inboxTasks]
+                          .sort((a, b) => a.position - b.position)
+                          .map((task, idx) => {
+                            const isEditing = editingTaskId === task.id;
+                            return (
+                              <motion.div
+                                key={task.id}
+                                layout
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                                className="flex items-center justify-between gap-3 p-3 bg-[var(--bg)] border border-[var(--border)] rounded-md transition-all hover:border-[var(--text-h)] hover:shadow-[2px_2px_0_var(--text-h)] group"
+                              >
+                                <div className="flex items-center gap-3 flex-grow min-w-0">
+                                  {/* Custom Checkbox */}
+                                  <Checkbox
+                                    id={`inbox-${task.id}`}
+                                    checked={task.completed}
+                                    onChange={() => toggleInboxTask(task.id)}
+                                    label=""
+                                    onMouseEnter={handleMouseEnter}
+                                  />
+                                  
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={editingText}
+                                      onChange={(e) => setEditingText(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          editInboxTask(task.id, editingText);
+                                          setEditingTaskId(null);
+                                        } else if (e.key === 'Escape') {
+                                          setEditingTaskId(null);
+                                        }
+                                      }}
+                                      onBlur={() => {
+                                        setTimeout(() => {
+                                          if (editingTaskIdRef.current === task.id) {
+                                            editInboxTask(task.id, editingText);
+                                            setEditingTaskId(null);
+                                          }
+                                        }, 200);
+                                      }}
+                                      autoFocus
+                                      className="font-mono text-sm border-b border-[var(--accent)] text-[var(--text-h)] focus:outline-none bg-transparent w-full"
+                                    />
+                                  ) : (
+                                    <span 
+                                      className={`font-sans text-base transition-all duration-300 truncate lowercase select-none ${
+                                        task.completed ? 'line-through text-[var(--text-muted)] opacity-60' : 'text-[var(--text-h)] font-medium'
+                                      }`}
+                                      onDoubleClick={() => {
+                                        setEditingTaskId(task.id);
+                                        setEditingText(task.text);
+                                        playTickSound();
+                                      }}
+                                    >
+                                      {task.text}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Inbox action buttons */}
+                                <div className="flex items-center gap-1.5 flex-shrink-0 opacity-80 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveInboxTask(task.id, 'up')}
+                                    disabled={idx === 0}
+                                    onMouseEnter={handleMouseEnter}
+                                    className="p-1 border border-[var(--border)] rounded text-xs bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer focus:outline-none"
+                                    title="move up"
+                                  >
+                                    ▲
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveInboxTask(task.id, 'down')}
+                                    disabled={idx === inboxTasks.length - 1}
+                                    onMouseEnter={handleMouseEnter}
+                                    className="p-1 border border-[var(--border)] rounded text-xs bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer focus:outline-none"
+                                    title="move down"
+                                  >
+                                    ▼
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onMouseDown={(e) => {
+                                      if (isEditing) {
+                                        e.preventDefault();
+                                      }
+                                    }}
+                                    onClick={() => {
+                                      if (isEditing) {
+                                        editInboxTask(task.id, editingText);
+                                        setEditingTaskId(null);
+                                      } else {
+                                        setEditingTaskId(task.id);
+                                        setEditingText(task.text);
+                                        playTickSound();
+                                      }
+                                    }}
+                                    onMouseEnter={handleMouseEnter}
+                                    className="px-1.5 py-0.5 border border-[var(--border)] rounded text-2xs font-mono bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] transition-all cursor-pointer focus:outline-none"
+                                  >
+                                    {isEditing ? 'save' : 'edit'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteInboxTask(task.id)}
+                                    onMouseEnter={handleMouseEnter}
+                                    className="px-1.5 py-0.5 border border-rose-500/30 rounded text-2xs font-mono bg-[var(--code-bg)] text-rose-500 hover:bg-rose-500 hover:text-white transition-all cursor-pointer focus:outline-none"
+                                    title="delete task"
+                                  >
+                                    [ x ]
+                                  </button>
+                                </div>
+                              </motion.div>
+                            );
+                          })
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+
+                  {/* Add task form input */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      addInboxTask(newInboxText);
+                      setNewInboxText('');
+                    }}
+                    className="flex items-center gap-3 pt-3 border-t border-[var(--border)]"
+                  >
+                    <input
+                      type="text"
+                      placeholder="add task to inbox..."
+                      value={newInboxText}
+                      onChange={(e) => setNewInboxText(e.target.value)}
+                      onMouseEnter={handleMouseEnter}
+                      className="bg-[var(--bg)] border border-[var(--border)] px-4 py-2.5 rounded-lg text-sm text-[var(--text-h)] focus:outline-none focus:border-[var(--accent)] font-mono w-full"
+                    />
+                    <button
+                      type="submit"
+                      onMouseEnter={handleMouseEnter}
+                      className="brutal-btn flex-shrink-0"
+                    >
+                      <span className="brutal-btn-top py-2.5 px-5 font-bold font-mono">
+                        [ add ]
+                      </span>
+                    </button>
+                  </form>
+                </motion.div>
+              </motion.div>
+            )}
+
             {/* DAILY PANEL */}
             {activeTab === 'daily' && (
               <motion.div
@@ -1337,12 +1963,12 @@ export default function App() {
                 )}
 
                 {/* Main panel container (Static brutal border, no hover lift) */}
-                 <motion.form onSubmit={handleWeeklySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-8 rounded-lg space-y-8">
+                <motion.form onSubmit={handleWeeklySubmit} variants={containerVariants} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} className="bg-[var(--code-bg)] border border-[var(--border)] p-4 md:p-8 rounded-lg space-y-8">
                   <motion.div variants={itemVariants}>
                     <h3 className="form-section-title">
                       open source contributions
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 gap-6">
                       <Input 
                         id="oss1"
                         label="repo / pr link 1"
@@ -1351,6 +1977,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('oss1')}
                       />
                       <Input 
                         id="oss2"
@@ -1360,6 +1987,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('oss2')}
                       />
                     </div>
                   </motion.div>
@@ -1376,6 +2004,7 @@ export default function App() {
                       disabled={!isWeeklyEditable}
                       required
                       onMouseEnter={handleMouseEnter}
+                      onToggleNotDone={() => toggleWeeklyFieldNotDone('projectRepo')}
                     />
                   </motion.div>
 
@@ -1383,7 +2012,7 @@ export default function App() {
                     <h3 className="form-section-title">
                       weekly contest links
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 gap-6">
                       <Input 
                         id="codechef"
                         label="codechef profile/link"
@@ -1392,6 +2021,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('codechef')}
                       />
                       <Input 
                         id="codeforces"
@@ -1401,6 +2031,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('codeforces')}
                       />
                       <Input 
                         id="leetcode"
@@ -1410,6 +2041,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('leetcode')}
                       />
                     </div>
                   </motion.div>
@@ -1426,10 +2058,11 @@ export default function App() {
                       disabled={!isWeeklyEditable}
                       required
                       onMouseEnter={handleMouseEnter}
+                      onToggleNotDone={() => toggleWeeklyFieldNotDone('hackathon')}
                     />
                   </motion.div>
 
-                  <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <motion.div variants={itemVariants} className="grid grid-cols-1 gap-6">
                     <div>
                       <h3 className="form-section-title">
                         ctfs
@@ -1442,6 +2075,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('ctf')}
                       />
                     </div>
                     <div>
@@ -1456,6 +2090,7 @@ export default function App() {
                         disabled={!isWeeklyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleWeeklyFieldNotDone('revision')}
                       />
                     </div>
                   </motion.div>
@@ -1522,7 +2157,7 @@ export default function App() {
                     <h3 className="form-section-title">
                       written publications (min 1-2 articles)
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 gap-6">
                       <Input 
                         id="blog1"
                         label="blog/article link 1"
@@ -1531,6 +2166,7 @@ export default function App() {
                         disabled={!isMonthlyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleMonthlyFieldNotDone('blog1')}
                       />
                       <Input 
                         id="blog2"
@@ -1540,6 +2176,7 @@ export default function App() {
                         disabled={!isMonthlyEditable}
                         required
                         onMouseEnter={handleMouseEnter}
+                        onToggleNotDone={() => toggleMonthlyFieldNotDone('blog2')}
                       />
                     </div>
                   </motion.div>
@@ -1556,6 +2193,7 @@ export default function App() {
                       disabled={!isMonthlyEditable}
                       required
                       onMouseEnter={handleMouseEnter}
+                      onToggleNotDone={() => toggleMonthlyFieldNotDone('langCommit')}
                     />
                   </motion.div>
 
@@ -1579,6 +2217,198 @@ export default function App() {
               </motion.div>
             )}
 
+            {/* POMO TIMER PANEL */}
+            {activeTab === 'pomo' && (
+              <motion.div
+                key="pomo"
+                custom={direction}
+                variants={tabVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={tabTransition}
+                className="space-y-8 tab-content-wrapper"
+              >
+                <motion.div 
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="show"
+                  className="bg-[var(--code-bg)] border border-[var(--border)] p-6 md:p-8 rounded-lg space-y-8"
+                >
+                  <div className="flex flex-wrap justify-center gap-4">
+                    <button 
+                      type="button" 
+                      onClick={() => handlePomoModeChange('work')} 
+                      onMouseEnter={handleMouseEnter}
+                      className={`px-4 py-2 border-2 border-[var(--text-h)] font-mono text-xs font-bold rounded uppercase cursor-pointer select-none transition-all duration-200 ${
+                        pomoMode === 'work' ? 'bg-[var(--accent)] text-white shadow-[2px_2px_0_var(--text-h)] -translate-x-[1px] -translate-y-[1px]' : 'bg-[var(--code-bg)] text-[var(--text-muted)] hover:text-[var(--text-h)] shadow-none hover:shadow-[2px_2px_0_var(--text-h)] hover:-translate-x-[1px] hover:-translate-y-[1px]'
+                      }`}
+                    >
+                      [ work - 25m ]
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => handlePomoModeChange('shortBreak')} 
+                      onMouseEnter={handleMouseEnter}
+                      className={`px-4 py-2 border-2 border-[var(--text-h)] font-mono text-xs font-bold rounded uppercase cursor-pointer select-none transition-all duration-200 ${
+                        pomoMode === 'shortBreak' ? 'bg-[var(--accent)] text-white shadow-[2px_2px_0_var(--text-h)] -translate-x-[1px] -translate-y-[1px]' : 'bg-[var(--code-bg)] text-[var(--text-muted)] hover:text-[var(--text-h)] shadow-none hover:shadow-[2px_2px_0_var(--text-h)] hover:-translate-x-[1px] hover:-translate-y-[1px]'
+                      }`}
+                    >
+                      [ short break - 5m ]
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => handlePomoModeChange('longBreak')} 
+                      onMouseEnter={handleMouseEnter}
+                      className={`px-4 py-2 border-2 border-[var(--text-h)] font-mono text-xs font-bold rounded uppercase cursor-pointer select-none transition-all duration-200 ${
+                        pomoMode === 'longBreak' ? 'bg-[var(--accent)] text-white shadow-[2px_2px_0_var(--text-h)] -translate-x-[1px] -translate-y-[1px]' : 'bg-[var(--code-bg)] text-[var(--text-muted)] hover:text-[var(--text-h)] shadow-none hover:shadow-[2px_2px_0_var(--text-h)] hover:-translate-x-[1px] hover:-translate-y-[1px]'
+                      }`}
+                    >
+                      [ long break - 10m ]
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col items-center justify-center p-6 space-y-6">
+                    <div className={`pomo-hamster-container ${pomoRunning ? 'timer-running' : ''}`}>
+                      <div aria-label="Orange and tan hamster running in a metal wheel" role="img" className="wheel-and-hamster">
+                        <div className="wheel" />
+                        <div className="hamster">
+                          <div className="hamster__body">
+                            <div className="hamster__head">
+                              <div className="hamster__ear" />
+                              <div className="hamster__eye" />
+                              <div className="hamster__nose" />
+                            </div>
+                            <div className="hamster__limb hamster__limb--fr" />
+                            <div className="hamster__limb hamster__limb--fl" />
+                            <div className="hamster__limb hamster__limb--br" />
+                            <div className="hamster__limb hamster__limb--bl" />
+                            <div className="hamster__tail" />
+                          </div>
+                        </div>
+                        <div className="spoke" />
+                      </div>
+                    </div>
+
+                    <div className="text-center">
+                      <div className="text-5xl md:text-6xl font-extrabold text-[var(--text-h)] font-mono tracking-wider select-none">
+                        {Math.floor(pomoTime / 60).toString().padStart(2, '0')}:{(pomoTime % 60).toString().padStart(2, '0')}
+                      </div>
+                      <div className="text-3xs font-mono text-[var(--text-muted)] uppercase tracking-widest mt-2">
+                        // work sessions: {pomoCyclesCompleted} / 4 //
+                      </div>
+                    </div>
+
+                    {/* Suggestions card */}
+                    {pomoSuggestion && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="w-full max-w-sm border-2 border-[var(--text-h)] bg-[var(--bg)] p-4 rounded shadow-[3px_3px_0_var(--text-h)] text-center space-y-3 font-mono"
+                      >
+                        <div className="text-2xs uppercase tracking-wider text-[var(--accent)] font-bold">// session complete //</div>
+                        <p className="text-xs lowercase text-[var(--text)]">
+                          {pomoSuggestion === 'longBreak' && `4 work sessions completed. take a long break (10m)?`}
+                          {pomoSuggestion === 'shortBreak' && `work session completed. take a short break (5m)?`}
+                          {pomoSuggestion === 'work' && `break completed. start another 25m work session?`}
+                        </p>
+                        <div className="flex flex-wrap justify-center gap-2">
+                          {pomoSuggestion === 'longBreak' && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                handlePomoModeChange('longBreak');
+                                setPomoRunning(true);
+                                setPomoSuggestion(null);
+                                setPomoCyclesCompleted(0);
+                              }}
+                              className="px-2.5 py-1.5 border border-[var(--border)] bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] text-3xs uppercase font-bold rounded cursor-pointer transition-all"
+                            >
+                              [ 10m break ]
+                            </button>
+                          )}
+                          {pomoSuggestion === 'shortBreak' && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                handlePomoModeChange('shortBreak');
+                                setPomoRunning(true);
+                                setPomoSuggestion(null);
+                              }}
+                              className="px-2.5 py-1.5 border border-[var(--border)] bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] text-3xs uppercase font-bold rounded cursor-pointer transition-all"
+                            >
+                              [ 5m break ]
+                            </button>
+                          )}
+                          {pomoSuggestion === 'work' && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                handlePomoModeChange('work');
+                                setPomoRunning(true);
+                                setPomoSuggestion(null);
+                              }}
+                              className="px-2.5 py-1.5 border border-[var(--border)] bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] text-3xs uppercase font-bold rounded cursor-pointer transition-all"
+                            >
+                              [ start work ]
+                            </button>
+                          )}
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (pomoSuggestion === 'longBreak') {
+                                setPomoCyclesCompleted(0);
+                              }
+                              handlePomoModeChange('work');
+                              setPomoSuggestion(null);
+                            }}
+                            className="px-2.5 py-1.5 border border-[var(--border)] bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] text-3xs uppercase font-bold rounded cursor-pointer transition-all"
+                          >
+                            [ start new work ]
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setPomoSuggestion(null)}
+                            className="px-2.5 py-1.5 border border-[var(--border)] bg-[var(--code-bg)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] text-3xs uppercase font-bold rounded cursor-pointer text-[var(--text-muted)] transition-all"
+                          >
+                            [ dismiss ]
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    <div className="flex items-center gap-4">
+                      <button 
+                        type="button" 
+                        onClick={() => { setPomoRunning(!pomoRunning); playTickSound(); }}
+                        onMouseEnter={handleMouseEnter}
+                        className="brutal-btn w-32 cursor-pointer focus:outline-none"
+                      >
+                        <span className="brutal-btn-top w-full py-2.5 text-center text-xs font-extrabold uppercase select-none">
+                          {pomoRunning ? 'pause' : 'start'}
+                        </span>
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setPomoRunning(false);
+                          setPomoSuggestion(null);
+                          if (pomoMode === 'work') setPomoTime(1500);
+                          else if (pomoMode === 'shortBreak') setPomoTime(300);
+                          else if (pomoMode === 'longBreak') setPomoTime(600);
+                          playTickSound();
+                        }}
+                        onMouseEnter={handleMouseEnter}
+                        className="px-4 py-2.5 border border-[var(--border)] rounded text-xs font-mono bg-[var(--code-bg)] text-[var(--text)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] transition-all cursor-pointer focus:outline-none uppercase font-bold"
+                      >
+                        reset
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+
             {/* INSIGHTS / HISTORY PANEL */}
             {activeTab === 'insights' && (
               <motion.div
@@ -1589,247 +2419,632 @@ export default function App() {
                 animate="center"
                 exit="exit"
                 transition={tabTransition}
-                className="space-y-8 tab-content-wrapper"
+                className="space-y-10 tab-content-wrapper"
               >
-                {/* Stats Dashboard - using brutal-hover-card for small tiles */}
-                <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between">
-                    <span className="text-xs font-mono text-[var(--text-muted)] lowercase">current streak</span>
-                    <div className="flex items-baseline gap-2 mt-4">
-                      <span className="text-4xl font-extrabold text-[var(--text-h)]">{streak}</span>
-                      <span className="text-xs font-mono text-[var(--text-muted)]">days</span>
-                    </div>
-                    <div className="text-[var(--accent)] flex items-center gap-1 text-2xs mt-2 font-mono">
-                      <Terminal className="w-3.5 h-3.5" /> uptime online
-                    </div>
-                  </motion.div>
+                <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-10">
+                  {/* 1. Daily Habits Metrics */}
+                  <div className="space-y-3">
+                    <div className="font-mono text-2xs text-[var(--text-muted)] lowercase tracking-wider">// daily habits metrics</div>
+                    <div className="grid grid-cols-3 gap-2.5 sm:gap-4 md:gap-6">
+                      {/* Card 1: Daily Current Streak */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">current streak</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-emerald-500 flex-shrink-0">[ active ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{streak}d</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ daily uptime index
+                        </div>
+                      </motion.div>
 
-                  <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between">
-                    <span className="text-xs font-mono text-[var(--text-muted)] lowercase">personal record</span>
-                    <div className="flex items-baseline gap-2 mt-4">
-                      <span className="text-4xl font-extrabold text-[var(--text-h)]">{maxStreak}</span>
-                      <span className="text-xs font-mono text-[var(--text-muted)]">days</span>
-                    </div>
-                    <div className="text-[var(--accent)] flex items-center gap-1 text-2xs mt-2 font-mono">
-                      <Sparkles className="w-3.5 h-3.5" /> all-time high
-                    </div>
-                  </motion.div>
+                      {/* Card 2: Daily Max Streak */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">personal record</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ max ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{maxStreak}d</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ peak performance log
+                        </div>
+                      </motion.div>
 
-                  <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between">
-                    <span className="text-xs font-mono text-[var(--text-muted)] lowercase">completion rate</span>
-                    <div className="flex items-baseline gap-2 mt-4">
-                      <span className="text-4xl font-extrabold text-[var(--text-h)]">
-                        {(() => {
-                          let totals = 0;
-                          let completed = 0;
-                          for (let i = 0; i < 30; i++) {
-                            const d = new Date();
-                            d.setDate(d.getDate() - i);
-                            const key = `tasks_daily_${formatDateString(d)}`;
-                            const val = localStorage.getItem(key);
-                            if (val) {
-                              totals++;
-                              const state = JSON.parse(val);
-                              if (state.bootdev && state.neetcode && state.ailearning && state.twitter && state.jobhunt) {
-                                completed++;
-                              }
+                      {/* Card 3: Daily Completion Rate */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">completion rate</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ 30d ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{dailyRate}%</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ consistency rating
+                        </div>
+                      </motion.div>
+                    </div>
+                  </div>
+
+                  {/* 2. Weekly Habits Metrics */}
+                  <div className="space-y-3">
+                    <div className="font-mono text-2xs text-[var(--text-muted)] lowercase tracking-wider">// weekly habits metrics</div>
+                    <div className="grid grid-cols-3 gap-2.5 sm:gap-4 md:gap-6">
+                      {/* Card 1: Weekly Current Streak */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">weekly streak</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--go-blue)] flex-shrink-0">[ active ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{weeklyStreak}w</div>
+                        <div className="text-[var(--go-blue)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ weekly sync index
+                        </div>
+                      </motion.div>
+
+                      {/* Card 2: Weekly Personal Record */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">weekly pr</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ max ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{maxWeeklyStreak}w</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ weekly peak index
+                        </div>
+                      </motion.div>
+
+                      {/* Card 3: Weekly Completion Rate */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">completion rate</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ 11w ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{weeklyRate}%</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ weekly consistency
+                        </div>
+                      </motion.div>
+                    </div>
+                  </div>
+
+                  {/* 3. Monthly Milestone Metrics */}
+                  <div className="space-y-3">
+                    <div className="font-mono text-2xs text-[var(--text-muted)] lowercase tracking-wider">// monthly milestone metrics</div>
+                    <div className="grid grid-cols-3 gap-2.5 sm:gap-4 md:gap-6">
+                      {/* Card 1: Monthly Current Streak */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">monthly streak</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ active ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{monthlyStreak}m</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ monthly milestone index
+                        </div>
+                      </motion.div>
+
+                      {/* Card 2: Monthly Personal Record */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">monthly pr</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ max ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{maxMonthlyStreak}m</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ monthly peak index
+                        </div>
+                      </motion.div>
+
+                      {/* Card 3: Monthly Completion Rate */}
+                      <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                          <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">completion rate</span>
+                          <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ 11m ]</span>
+                        </div>
+                        <div className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--text-h)] font-mono">{monthlyRate}%</div>
+                        <div className="text-[var(--accent)] text-[9px] sm:text-3xs font-mono border-t border-[var(--border)] pt-1 md:pt-1.5 mt-1 md:mt-2 hidden sm:block">
+                          &gt;_ monthly consistency
+                        </div>
+                      </motion.div>
+                    </div>
+                  </div>
+
+                  {/* Grids list - stacked vertically and horizontally wide */}
+                  <div className="space-y-8">
+                    {/* Daily Grid */}
+                    <motion.div 
+                      variants={scrollRevealVariants}
+                      initial="hidden"
+                      whileInView="show"
+                      viewport={{ once: true, margin: "-60px" }}
+                      className="brutal-card w-full"
+                    >
+                      <h3 className="text-sm font-bold text-[var(--text-h)] lowercase mb-4 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-[var(--accent)]" /> tasks grid (past 30 days)
+                      </h3>
+                      <div className="flex flex-wrap gap-2.5 p-3 bg-[var(--code-bg)] border border-[var(--border)] rounded justify-start">
+                        {Array.from({ length: 30 }).map((_, i) => {
+                          const d = new Date();
+                          d.setDate(d.getDate() - (29 - i));
+                          const dateKey = formatDateString(d);
+                          const val = localStorage.getItem(`tasks_daily_${dateKey}`);
+                          
+                          let checkedCount = 0;
+                          if (val) {
+                            try {
+                              const parsed = JSON.parse(val);
+                              checkedCount = Object.values(parsed).filter(Boolean).length;
+                            } catch {}
+                          }
+
+                          const colors = [
+                            'bg-[var(--border)] opacity-30',
+                            'bg-[var(--accent)]/20',
+                            'bg-[var(--accent)]/45',
+                            'bg-[var(--accent)]/65',
+                            'bg-[var(--accent)]/85',
+                            'bg-[var(--accent)] font-bold shadow-[0_0_8px_var(--accent)]'
+                          ];
+
+                          const onMouseEnter = (e: React.MouseEvent) => {
+                            setHoveredTooltip({
+                              dateStr: dateKey,
+                              x: e.clientX,
+                              y: e.clientY,
+                              tasks: getTasksForDate(dateKey)
+                            });
+                          };
+
+                          const onMouseMove = (e: React.MouseEvent) => {
+                            setHoveredTooltip(prev => prev ? {
+                              ...prev,
+                              x: e.clientX,
+                              y: e.clientY
+                            } : null);
+                          };
+
+                          const onMouseLeave = () => {
+                            setHoveredTooltip(null);
+                          };
+
+                          return (
+                            <div 
+                              key={dateKey} 
+                              onClick={() => setSelectedCellInfo({ type: 'daily', key: dateKey })}
+                              className={`w-10 h-10 rounded-sm ${colors[checkedCount]} transition-all duration-300 hover:scale-110 cursor-pointer flex items-center justify-center text-xs font-mono font-bold select-none text-white`}
+                              onMouseEnter={onMouseEnter}
+                              onMouseMove={onMouseMove}
+                              onMouseLeave={onMouseLeave}
+                            >
+                              {checkedCount > 0 && checkedCount}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between items-center text-3xs font-mono text-[var(--text-muted)] mt-3 lowercase">
+                        <span>30 days ago</span>
+                        <span>today</span>
+                      </div>
+                    </motion.div>
+
+                    {/* Weekly Grid */}
+                    <motion.div 
+                      variants={scrollRevealVariants}
+                      initial="hidden"
+                      whileInView="show"
+                      viewport={{ once: true, margin: "-60px" }}
+                      className="brutal-card w-full"
+                    >
+                      <h3 className="text-sm font-bold text-[var(--text-h)] lowercase mb-4 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-[var(--accent)]" /> weekly tasks grid (past 11 weeks)
+                      </h3>
+                      <div className="flex flex-wrap gap-3.5 p-3 bg-[var(--code-bg)] border border-[var(--border)] rounded justify-start">
+                        {Array.from({ length: 11 }).map((_, i) => {
+                          const d = new Date();
+                          d.setDate(d.getDate() - (10 - i) * 7);
+                          const wKey = getWeekString(d);
+                          const val = localStorage.getItem(`tasks_weekly_${wKey}`);
+                          
+                          let filledCount = 0;
+                          let isSaved = false;
+                          if (val) {
+                            try {
+                              const parsed = JSON.parse(val);
+                              isSaved = !!parsed.isSaved;
+                              Object.entries(parsed).forEach(([key, value]) => {
+                                if (key === 'isSaved') return;
+                                if (typeof value === 'string') {
+                                  if (value !== '__NOT_DONE__' && value.trim() !== '') {
+                                    filledCount++;
+                                  }
+                                }
+                              });
+                            } catch {}
+                          }
+
+                          const colors = [
+                            'bg-[var(--border)] opacity-30',
+                            'bg-[var(--accent)]/20',
+                            'bg-[var(--accent)]/45',
+                            'bg-[var(--accent)]/65',
+                            'bg-[var(--accent)]/85',
+                            'bg-[var(--accent)] font-bold shadow-[0_0_8px_var(--accent)]'
+                          ];
+
+                          let colorClass = colors[0];
+                          if (isSaved) {
+                            const totalFilled = filledCount;
+                            if (totalFilled === 9) {
+                              colorClass = colors[5];
+                            } else if (totalFilled >= 7) {
+                              colorClass = colors[4];
+                            } else if (totalFilled >= 5) {
+                              colorClass = colors[3];
+                            } else if (totalFilled >= 3) {
+                              colorClass = colors[2];
+                            } else {
+                              colorClass = colors[1];
                             }
                           }
-                          return totals > 0 ? Math.round((completed / totals) * 100) : 0;
-                        })()}
-                        %
-                      </span>
-                      <span className="text-xs font-mono text-[var(--text-muted)]">past 30 days</span>
-                    </div>
-                    <div className="text-[var(--go-blue)] flex items-center gap-1 text-2xs mt-2 font-mono">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> habit index
-                    </div>
-                  </motion.div>
+
+                          const getWeeklyTasksForTooltip = (weekKey: string) => {
+                            const saved = localStorage.getItem(`tasks_weekly_${weekKey}`);
+                            let state = { ...DEFAULT_WEEKLY };
+                            if (saved) {
+                              try {
+                                state = { ...state, ...JSON.parse(saved) };
+                              } catch {}
+                            }
+                            return [
+                              { label: 'repo 1', value: state.oss1 },
+                              { label: 'repo 2', value: state.oss2 },
+                              { label: 'project', value: state.projectRepo },
+                              { label: 'codechef', value: state.codechef },
+                              { label: 'codeforces', value: state.codeforces },
+                              { label: 'leetcode', value: state.leetcode },
+                              { label: 'hackathon', value: state.hackathon },
+                              { label: 'ctf', value: state.ctf },
+                              { label: 'revision', value: state.revision },
+                            ];
+                          };
+
+                          const onMouseEnter = (e: React.MouseEvent) => {
+                            const items = getWeeklyTasksForTooltip(wKey);
+                            setHoveredTooltip({
+                              dateStr: `week of ${getWeekRange(d)}`,
+                              x: e.clientX,
+                              y: e.clientY,
+                              tasks: items.map(item => ({
+                                label: item.label,
+                                status: item.value === '__NOT_DONE__' ? 'not-done' : item.value.trim() !== '' ? 'checked' : 'pending'
+                              }))
+                            });
+                          };
+
+                          const onMouseMove = (e: React.MouseEvent) => {
+                            setHoveredTooltip(prev => prev ? {
+                              ...prev,
+                              x: e.clientX,
+                              y: e.clientY
+                            } : null);
+                          };
+
+                          const onMouseLeave = () => {
+                            setHoveredTooltip(null);
+                          };
+
+                          return (
+                            <div 
+                              key={wKey} 
+                              onClick={() => setSelectedCellInfo({ type: 'weekly', key: wKey })}
+                              className={`flex-1 min-w-[3.5rem] md:min-w-[4.5rem] h-14 rounded transition-all duration-300 hover:scale-110 cursor-pointer flex flex-col items-center justify-center text-[10px] font-mono font-bold select-none text-white ${colorClass}`}
+                              onMouseEnter={onMouseEnter}
+                              onMouseMove={onMouseMove}
+                              onMouseLeave={onMouseLeave}
+                            >
+                              {isSaved ? `${filledCount}/9` : 'pnd'}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between items-center text-3xs font-mono text-[var(--text-muted)] mt-3 lowercase">
+                        <span>11 weeks ago</span>
+                        <span>today</span>
+                      </div>
+                    </motion.div>
+
+                    {/* Monthly Grid */}
+                    <motion.div 
+                      variants={scrollRevealVariants}
+                      initial="hidden"
+                      whileInView="show"
+                      viewport={{ once: true, margin: "-60px" }}
+                      className="brutal-card w-full"
+                    >
+                      <h3 className="text-sm font-bold text-[var(--text-h)] lowercase mb-4 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-[var(--accent)]" /> monthly tasks grid (past 11 months)
+                      </h3>
+                      <div className="flex flex-wrap gap-3.5 p-3 bg-[var(--code-bg)] border border-[var(--border)] rounded justify-start">
+                        {Array.from({ length: 11 }).map((_, i) => {
+                          const d = new Date();
+                          d.setMonth(d.getMonth() - (10 - i));
+                          const mKey = getMonthString(d);
+                          const val = localStorage.getItem(`tasks_monthly_${mKey}`);
+                          
+                          let filledCount = 0;
+                          let isSaved = false;
+                          if (val) {
+                            try {
+                              const parsed = JSON.parse(val);
+                              isSaved = !!parsed.isSaved;
+                              Object.entries(parsed).forEach(([key, value]) => {
+                                if (key === 'isSaved') return;
+                                if (typeof value === 'string') {
+                                  if (value !== '__NOT_DONE__' && value.trim() !== '') {
+                                    filledCount++;
+                                  }
+                                }
+                              });
+                            } catch {}
+                          }
+
+                          const colors = [
+                            'bg-[var(--border)] opacity-30',
+                            'bg-[var(--accent)]/30',
+                            'bg-[var(--accent)]/65',
+                            'bg-[var(--accent)] font-bold shadow-[0_0_8px_var(--accent)]'
+                          ];
+
+                          let colorClass = colors[0];
+                          if (isSaved) {
+                            colorClass = colors[Math.min(filledCount, 3)];
+                          }
+
+                          const getMonthlyTasksForTooltip = (monthKey: string) => {
+                            const saved = localStorage.getItem(`tasks_monthly_${monthKey}`);
+                            let state = { ...DEFAULT_MONTHLY };
+                            if (saved) {
+                              try {
+                                state = { ...state, ...JSON.parse(saved) };
+                              } catch {}
+                            }
+                            return [
+                              { label: 'blog 1', value: state.blog1 },
+                              { label: 'blog 2', value: state.blog2 },
+                              { label: 'compiler feature', value: state.langCommit },
+                            ];
+                          };
+
+                          const onMouseEnter = (e: React.MouseEvent) => {
+                            const items = getMonthlyTasksForTooltip(mKey);
+                            setHoveredTooltip({
+                              dateStr: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toLowerCase(),
+                              x: e.clientX,
+                              y: e.clientY,
+                              tasks: items.map(item => ({
+                                label: item.label,
+                                status: item.value === '__NOT_DONE__' ? 'not-done' : item.value.trim() !== '' ? 'checked' : 'pending'
+                              }))
+                            });
+                          };
+
+                          const onMouseMove = (e: React.MouseEvent) => {
+                            setHoveredTooltip(prev => prev ? {
+                              ...prev,
+                              x: e.clientX,
+                              y: e.clientY
+                            } : null);
+                          };
+
+                          const onMouseLeave = () => {
+                            setHoveredTooltip(null);
+                          };
+
+                          return (
+                            <div 
+                              key={mKey} 
+                              onClick={() => setSelectedCellInfo({ type: 'monthly', key: mKey })}
+                              className={`flex-1 min-w-[3.5rem] md:min-w-[4.5rem] h-14 rounded transition-all duration-300 hover:scale-110 cursor-pointer flex flex-col items-center justify-center text-[10px] font-mono font-bold select-none text-white ${colorClass}`}
+                              onMouseEnter={onMouseEnter}
+                              onMouseMove={onMouseMove}
+                              onMouseLeave={onMouseLeave}
+                            >
+                              {isSaved ? `${filledCount}/3` : 'pnd'}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between items-center text-3xs font-mono text-[var(--text-muted)] mt-3 lowercase">
+                        <span>11 months ago</span>
+                        <span>today</span>
+                      </div>
+                    </motion.div>
+                  </div>
                 </motion.div>
-
-                {/* Completion Grid (Github contribution style) */}
-                <motion.div 
-                  variants={scrollRevealVariants}
-                  initial="hidden"
-                  whileInView="show"
-                  viewport={{ once: true, margin: "-60px" }}
-                  className="brutal-card"
-                >
-                  <h3 className="text-sm font-bold text-[var(--text-h)] lowercase mb-4 flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-[var(--accent)]" /> habit grid (past 30 days)
-                  </h3>
-                  <div className="flex flex-wrap gap-1.5 p-2 bg-[var(--code-bg)] border border-[var(--border)] rounded">
-                    {Array.from({ length: 30 }).map((_, i) => {
-                      const d = new Date();
-                      d.setDate(d.getDate() - (29 - i));
-                      const dateKey = formatDateString(d);
-                      const val = localStorage.getItem(`tasks_daily_${dateKey}`);
-                      
-                      let checkedCount = 0;
-                      if (val) {
-                        try {
-                          const parsed = JSON.parse(val);
-                          checkedCount = Object.values(parsed).filter(Boolean).length;
-                        } catch {}
-                      }
-
-                      const colors = [
-                        'bg-[var(--border)] opacity-30',
-                        'bg-[var(--accent)]/20',
-                        'bg-[var(--accent)]/45',
-                        'bg-[var(--accent)]/65',
-                        'bg-[var(--accent)]/85',
-                        'bg-[var(--accent)] font-bold shadow-[0_0_8px_var(--accent)]'
-                      ];
-
-                      const onMouseEnter = (e: React.MouseEvent) => {
-                        setHoveredTooltip({
-                          dateStr: dateKey,
-                          x: e.clientX,
-                          y: e.clientY,
-                          tasks: getTasksForDate(dateKey)
-                        });
-                      };
-
-                      const onMouseMove = (e: React.MouseEvent) => {
-                        setHoveredTooltip(prev => prev ? {
-                          ...prev,
-                          x: e.clientX,
-                          y: e.clientY
-                        } : null);
-                      };
-
-                      const onMouseLeave = () => {
-                        setHoveredTooltip(null);
-                      };
-
-                      return (
-                        <div 
-                          key={dateKey} 
-                          className={`w-6 h-6 rounded-sm ${colors[checkedCount]} transition-all duration-300 hover:scale-110 cursor-help flex items-center justify-center text-[8px] font-mono font-bold select-none text-white`}
-                          onMouseEnter={onMouseEnter}
-                          onMouseMove={onMouseMove}
-                          onMouseLeave={onMouseLeave}
-                        >
-                          {checkedCount > 0 && checkedCount}
+                
+                {/* Archive details Command-Palette style modal popup */}
+                <AnimatePresence>
+                  {selectedCellInfo && (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md">
+                      <div className="absolute inset-0 cursor-pointer" onClick={() => { setSelectedCellInfo(null); playTickSound(); }} />
+                      <motion.div 
+                        initial={{ scale: 0.95, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.95, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                        className="relative w-full max-w-md bg-[var(--dropdown-bg)] border-2 border-[var(--text-h)] p-5 rounded shadow-[4px_4px_0_var(--text-h)] font-mono text-2xs z-10 space-y-4 mx-4 cursor-default"
+                      >
+                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-2.5">
+                          <span className="flex items-center gap-1.5 font-bold lowercase text-[var(--text-h)] text-xs">
+                            <Terminal className="w-4 h-4 text-[var(--accent)]" />
+                            <span>archive // {selectedCellInfo.type} - {selectedCellInfo.key}</span>
+                          </span>
+                          <button 
+                            type="button" 
+                            onClick={() => { setSelectedCellInfo(null); playTickSound(); }}
+                            className="text-[9px] text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--text-h)] hover:text-[var(--bg)] px-1.5 py-0.5 rounded lowercase font-semibold cursor-pointer focus:outline-none"
+                          >
+                            [ close ]
+                          </button>
                         </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex justify-between items-center text-3xs font-mono text-[var(--text-muted)] mt-3 lowercase">
-                    <span>30 days ago</span>
-                    <div className="flex items-center gap-1">
-                      <span>less</span>
-                      <span className="w-2.5 h-2.5 bg-[var(--border)] opacity-30 inline-block rounded-xs"></span>
-                      <span className="w-2.5 h-2.5 bg-[var(--accent)]/25 inline-block rounded-xs"></span>
-                      <span className="w-2.5 h-2.5 bg-[var(--accent)]/55 inline-block rounded-xs"></span>
-                      <span className="w-2.5 h-2.5 bg-[var(--accent)] inline-block rounded-xs"></span>
-                      <span>more</span>
-                    </div>
-                    <span>today</span>
-                  </div>
-                </motion.div>
 
-                {/* Heatmap Grid */}
-                <motion.div
-                  variants={scrollRevealVariants}
-                  initial="hidden"
-                  whileInView="show"
-                  viewport={{ once: true, margin: "-60px" }}
-                >
-                  <Heatmap currentDate={currentDate} />
-                </motion.div>
+                        <div className="space-y-3 text-xs font-mono lowercase">
+                          {(() => {
+                            const saved = localStorage.getItem(`tasks_${selectedCellInfo.type}_${selectedCellInfo.key}`);
+                            if (!saved) {
+                              return (
+                                <div className="py-6 text-center italic text-[var(--text-muted)]">
+                                  no report submitted for this {selectedCellInfo.type} window.
+                                </div>
+                              );
+                            }
 
-                {/* Submissions Log */}
-                <motion.div 
-                  variants={scrollRevealVariants}
-                  initial="hidden"
-                  whileInView="show"
-                  viewport={{ once: true, margin: "-60px" }}
-                  className="brutal-card space-y-4"
-                >
-                  <h3 className="text-sm font-bold text-[var(--text-h)] lowercase border-b border-[var(--border)] pb-2">
-                    weekly & monthly submissions
-                  </h3>
-                  <div className="space-y-3 font-mono text-xs">
-                    
-                    {/* Weekly Links */}
-                    <div className="p-3 bg-[var(--code-bg)] border border-[var(--border)] rounded">
-                      <div className="font-bold text-[var(--text-h)] mb-1 flex justify-between lowercase">
-                        <span>current week: {getWeekRange(currentDate)}</span>
-                        <span className={isWeeklySubmitted ? 'text-emerald-500' : 'text-amber-500'}>
-                          {isWeeklySubmitted ? 'submitted' : 'pending'}
-                        </span>
-                      </div>
-                      {isWeeklySubmitted ? (
-                        <ul className="list-disc pl-4 space-y-1 mt-2 text-[var(--text-muted)]">
-                          {weeklyTasks.projectRepo && (
-                            <li>
-                              nvim project: <a href={weeklyTasks.projectRepo} target="_blank" rel="noopener noreferrer" className="animated-link truncate max-w-xs inline-block align-bottom">{weeklyTasks.projectRepo}</a>
-                            </li>
-                          )}
-                          {(weeklyTasks.oss1 || weeklyTasks.oss2) && (
-                            <li>
-                              oss contributions: {weeklyTasks.oss1 && <a href={weeklyTasks.oss1} target="_blank" rel="noopener noreferrer" className="animated-link mr-2">{weeklyTasks.oss1}</a>}
-                              {weeklyTasks.oss2 && <a href={weeklyTasks.oss2} target="_blank" rel="noopener noreferrer" className="animated-link">{weeklyTasks.oss2}</a>}
-                            </li>
-                          )}
-                          {(weeklyTasks.codechef || weeklyTasks.codeforces || weeklyTasks.leetcode) && (
-                            <li>
-                              contests: {[weeklyTasks.codechef, weeklyTasks.codeforces, weeklyTasks.leetcode].filter(Boolean).map((link, idx) => (
-                                <a key={idx} href={link} target="_blank" rel="noopener noreferrer" className="animated-link mr-2 truncate max-w-[120px] inline-block align-bottom">{link}</a>
-                              ))}
-                            </li>
-                          )}
-                          {weeklyTasks.hackathon && (
-                            <li>
-                              hackathon: <a href={weeklyTasks.hackathon} target="_blank" rel="noopener noreferrer" className="animated-link truncate max-w-xs inline-block align-bottom">{weeklyTasks.hackathon}</a>
-                            </li>
-                          )}
-                          {weeklyTasks.ctf && (
-                            <li>
-                              ctf: <a href={weeklyTasks.ctf} target="_blank" rel="noopener noreferrer" className="animated-link truncate max-w-xs inline-block align-bottom">{weeklyTasks.ctf}</a>
-                            </li>
-                          )}
-                          {weeklyTasks.revision && (
-                            <li>
-                              revision: <a href={weeklyTasks.revision} target="_blank" rel="noopener noreferrer" className="animated-link truncate max-w-xs inline-block align-bottom">{weeklyTasks.revision}</a>
-                            </li>
-                          )}
-                        </ul>
-                      ) : (
-                        <p className="italic text-[var(--text-muted)] mt-2">weekly log is incomplete. all fields must be filled to submit.</p>
-                      )}
-                    </div>
+                            try {
+                              const data = JSON.parse(saved);
+                              
+                              if (selectedCellInfo.type === 'daily') {
+                                const items = [
+                                  { label: 'boot.dev', checked: !!data.bootdev },
+                                  { label: 'neetcode', checked: !!data.neetcode },
+                                  { label: 'ai learning', checked: !!data.ailearning },
+                                  { label: 'twitter post', checked: !!data.twitter },
+                                  { label: 'job hunt', checked: !!data.jobhunt },
+                                ];
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="text-3xs text-[var(--text-muted)] border-b border-[var(--border)] pb-1 mb-1.5">
+                                      completion rate: {items.filter(i => i.checked).length} / 5
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      {items.map((item, idx) => (
+                                        <div key={idx} className="flex items-center gap-2 p-2 bg-[var(--code-bg)] border border-[var(--border)]/40 rounded">
+                                          <span className={item.checked ? 'text-[var(--accent)] font-bold' : 'text-[var(--text-muted)]'}>
+                                            {item.checked ? '[■]' : '[ ]'}
+                                          </span>
+                                          <span className={item.checked ? 'text-[var(--text-h)]' : 'text-[var(--text-muted)]'}>
+                                            {item.label}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              }
 
-                    {/* Monthly Links */}
-                    <div className="p-3 bg-[var(--code-bg)] border border-[var(--border)] rounded">
-                      <div className="font-bold text-[var(--text-h)] mb-1 flex justify-between lowercase">
-                        <span>current month: {currentDate.toLocaleDateString('en-US', { month: 'long' }).toLowerCase()}</span>
-                        <span className={isMonthlySubmitted ? 'text-emerald-500' : 'text-amber-500'}>
-                          {isMonthlySubmitted ? 'submitted' : 'pending'}
-                        </span>
-                      </div>
-                      {isMonthlySubmitted ? (
-                        <ul className="list-disc pl-4 space-y-1 mt-2 text-[var(--text-muted)]">
-                          {(monthlyTasks.blog1 || monthlyTasks.blog2) && (
-                            <li>
-                              blogs: {monthlyTasks.blog1 && <a href={monthlyTasks.blog1} target="_blank" rel="noopener noreferrer" className="animated-link mr-2">{monthlyTasks.blog1}</a>}
-                              {monthlyTasks.blog2 && <a href={monthlyTasks.blog2} target="_blank" rel="noopener noreferrer" className="animated-link">{monthlyTasks.blog2}</a>}
-                            </li>
-                          )}
-                          {monthlyTasks.langCommit && (
-                            <li>
-                              compiler feature: <a href={monthlyTasks.langCommit} target="_blank" rel="noopener noreferrer" className="animated-link truncate max-w-xs inline-block align-bottom">{monthlyTasks.langCommit}</a>
-                            </li>
-                          )}
-                        </ul>
-                      ) : (
-                        <p className="italic text-[var(--text-muted)] mt-2">monthly log is incomplete. all fields must be filled to submit.</p>
-                      )}
+                              if (selectedCellInfo.type === 'weekly') {
+                                const items = [
+                                  { label: 'repo 1', value: data.oss1 },
+                                  { label: 'repo 2', value: data.oss2 },
+                                  { label: 'project', value: data.projectRepo },
+                                  { label: 'codechef', value: data.codechef },
+                                  { label: 'codeforces', value: data.codeforces },
+                                  { label: 'leetcode', value: data.leetcode },
+                                  { label: 'hackathon', value: data.hackathon },
+                                  { label: 'ctf', value: data.ctf },
+                                  { label: 'revision', value: data.revision },
+                                ];
+
+                                const isSaved = !!data.isSaved;
+
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="text-3xs text-[var(--text-muted)] border-b border-[var(--border)] pb-1 mb-1.5 flex justify-between">
+                                      <span>status: {isSaved ? 'submitted' : 'draft'}</span>
+                                      <span>{items.filter(i => i.value && i.value !== '__NOT_DONE__').length} / 9 done</span>
+                                    </div>
+                                    <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                                      {items.map((item, idx) => {
+                                        const isNotDone = item.value === '__NOT_DONE__';
+                                        const isEmpty = !item.value || item.value.trim() === '';
+                                        return (
+                                          <div key={idx} className="p-2 bg-[var(--code-bg)] border border-[var(--border)]/40 rounded">
+                                            <div className="flex justify-between items-center text-3xs font-bold">
+                                              <span className="text-[var(--accent)]">{item.label}</span>
+                                              {isNotDone && <span className="text-rose-400">not done</span>}
+                                              {isEmpty && <span className="text-[var(--text-muted)]">pending</span>}
+                                              {!isNotDone && !isEmpty && <span className="text-emerald-500">done</span>}
+                                            </div>
+                                            {!isEmpty && !isNotDone && (
+                                              <div className="text-3xs text-[var(--text)] break-all mt-1 font-sans">
+                                                {item.value.startsWith('http') ? (
+                                                  <a href={item.value} target="_blank" rel="noopener noreferrer" className="animated-link">
+                                                    {item.value}
+                                                  </a>
+                                                ) : (
+                                                  item.value
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              if (selectedCellInfo.type === 'monthly') {
+                                const items = [
+                                  { label: 'blog 1', value: data.blog1 },
+                                  { label: 'blog 2', value: data.blog2 },
+                                  { label: 'compiler feature', value: data.langCommit },
+                                ];
+
+                                const isSaved = !!data.isSaved;
+
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="text-3xs text-[var(--text-muted)] border-b border-[var(--border)] pb-1 mb-1.5 flex justify-between">
+                                      <span>status: {isSaved ? 'submitted' : 'draft'}</span>
+                                      <span>{items.filter(i => i.value && i.value !== '__NOT_DONE__').length} / 3 done</span>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      {items.map((item, idx) => {
+                                        const isNotDone = item.value === '__NOT_DONE__';
+                                        const isEmpty = !item.value || item.value.trim() === '';
+                                        return (
+                                          <div key={idx} className="p-2 bg-[var(--code-bg)] border border-[var(--border)]/40 rounded">
+                                            <div className="flex justify-between items-center text-3xs font-bold">
+                                              <span className="text-[var(--accent)]">{item.label}</span>
+                                              {isNotDone && <span className="text-rose-400">not done</span>}
+                                              {isEmpty && <span className="text-[var(--text-muted)]">pending</span>}
+                                              {!isNotDone && !isEmpty && <span className="text-emerald-500">done</span>}
+                                            </div>
+                                            {!isEmpty && !isNotDone && (
+                                              <div className="text-3xs text-[var(--text)] break-all mt-1 font-sans">
+                                                {item.value.startsWith('http') ? (
+                                                  <a href={item.value} target="_blank" rel="noopener noreferrer" className="animated-link">
+                                                    {item.value}
+                                                  </a>
+                                                ) : (
+                                                  item.value
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                            } catch {
+                              return (
+                                <div className="py-6 text-center italic text-rose-500">
+                                  error parsing archived cell details.
+                                </div>
+                              );
+                            }
+                          })()}
+                        </div>
+
+                        <div className="text-[9px] text-[var(--text-muted)] font-mono leading-relaxed border-t border-[var(--border)] pt-2.5 select-none lowercase">
+                          press [esc] or click backdrop to close details.
+                        </div>
+                      </motion.div>
                     </div>
-                  </div>
-                </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
 
@@ -2040,11 +3255,17 @@ export default function App() {
             <div className="space-y-1">
               {hoveredTooltip.tasks.map((t, idx) => (
                 <div key={idx} className="flex items-center gap-1.5">
-                  <span className={t.checked ? 'text-[var(--accent)] font-bold' : 'text-[var(--text-muted)]'}>
-                    {t.checked ? '[■]' : '[ ]'}
+                  <span className={
+                    t.status === 'checked' ? 'text-[var(--accent)] font-bold' :
+                    t.status === 'not-done' ? 'text-rose-500 line-through' : 'text-[var(--text-muted)]'
+                  }>
+                    {t.status === 'checked' ? '[■]' : t.status === 'not-done' ? '[x]' : '[ ]'}
                   </span>
-                  <span className={t.checked ? 'text-[var(--text-h)]' : 'text-[var(--text-muted)]'}>
-                    {t.label}
+                  <span className={
+                    t.status === 'checked' ? 'text-[var(--text-h)]' :
+                    t.status === 'not-done' ? 'text-[var(--text-muted)] line-through' : 'text-[var(--text-muted)]'
+                  }>
+                    {t.label} {t.status === 'not-done' && '(not done)'}
                   </span>
                 </div>
               ))}

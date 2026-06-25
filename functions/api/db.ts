@@ -53,6 +53,12 @@ export async function initializeDatabase(client: Connection): Promise<void> {
       blog2 TEXT DEFAULT '',
       lang_commit TEXT DEFAULT '',
       is_saved INTEGER DEFAULT 0
+    );`,
+    `CREATE TABLE IF NOT EXISTS inbox_tasks (
+      id TEXT PRIMARY KEY,
+      text TEXT DEFAULT '',
+      completed INTEGER DEFAULT 0,
+      position INTEGER DEFAULT 0
     );`
   ]);
 }

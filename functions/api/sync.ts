@@ -8,6 +8,56 @@ const CORS_HEADERS = {
   'Content-Type': 'application/json',
 };
 
+// Date Helpers
+function formatDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getWeekString(date: Date): string {
+  const tempDate = new Date(date.getTime());
+  tempDate.setHours(0, 0, 0, 0);
+  tempDate.setDate(tempDate.getDate() + 3 - (tempDate.getDay() + 6) % 7);
+  const week1 = new Date(tempDate.getFullYear(), 0, 4);
+  week1.setDate(week1.getDate() + 3 - (week1.getDay() + 6) % 7);
+  const millisecondDiff = tempDate.getTime() - week1.getTime();
+  const weekNum = 1 + Math.round(millisecondDiff / 604800000);
+  return `${tempDate.getFullYear()}-w${String(weekNum).padStart(2, '0')}`;
+}
+
+function getMonthString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+// Record pruning self-cleanup routine
+async function performDbCleanup(client: any): Promise<void> {
+  try {
+    // 1. daily tasks - keep last 111 days
+    const dailyCutoff = new Date();
+    dailyCutoff.setDate(dailyCutoff.getDate() - 111);
+    const dailyCutoffStr = formatDateString(dailyCutoff);
+    await client.execute('DELETE FROM daily_tasks WHERE date_key < ?', [dailyCutoffStr]);
+
+    // 2. weekly tasks - keep last 11 weeks
+    const weeklyCutoffDate = new Date();
+    weeklyCutoffDate.setDate(weeklyCutoffDate.getDate() - 11 * 7);
+    const weeklyCutoffStr = getWeekString(weeklyCutoffDate);
+    await client.execute('DELETE FROM weekly_tasks WHERE week_key < ?', [weeklyCutoffStr]);
+
+    // 3. monthly tasks - keep last 11 months
+    const monthlyCutoffDate = new Date();
+    monthlyCutoffDate.setMonth(monthlyCutoffDate.getMonth() - 11);
+    const monthlyCutoffStr = getMonthString(monthlyCutoffDate);
+    await client.execute('DELETE FROM monthly_tasks WHERE month_key < ?', [monthlyCutoffStr]);
+  } catch (e) {
+    console.error('cleanup error', e);
+  }
+}
+
 // Handle CORS Preflight OPTIONS requests
 export const onRequestOptions: PagesFunction = async () => {
   return new Response(null, {
@@ -44,6 +94,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const dailyResult = await client.execute('SELECT * FROM daily_tasks');
     const weeklyResult = await client.execute('SELECT * FROM weekly_tasks');
     const monthlyResult = await client.execute('SELECT * FROM monthly_tasks');
+    const inboxResult = await client.execute('SELECT * FROM inbox_tasks ORDER BY position ASC');
 
     // Map database models to application camelCase formats
     const daily = dailyResult.rows.map((row: any) => ({
@@ -77,7 +128,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       isSaved: Boolean(row.is_saved),
     }));
 
-    return new Response(JSON.stringify({ daily, weekly, monthly }), {
+    const inbox = inboxResult.rows.map((row: any) => ({
+      id: String(row.id),
+      text: String(row.text || ''),
+      completed: Boolean(row.completed),
+      position: Number(row.position),
+    }));
+
+    return new Response(JSON.stringify({ daily, weekly, monthly, inbox }), {
       status: 200,
       headers: CORS_HEADERS,
     });
@@ -180,12 +238,29 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           data.isSaved ? 1 : 0,
         ]
       );
+    } else if (type === 'inbox') {
+      const { data } = payload;
+      await client.execute('DELETE FROM inbox_tasks');
+      for (const item of data) {
+        await client.execute(
+          'INSERT INTO inbox_tasks (id, text, completed, position) VALUES (?, ?, ?, ?)',
+          [
+            item.id,
+            item.text || '',
+            item.completed ? 1 : 0,
+            item.position
+          ]
+        );
+      }
     } else {
       return new Response(JSON.stringify({ error: 'invalid type parameter' }), {
         status: 400,
         headers: CORS_HEADERS,
       });
     }
+
+    // Prune old daily, weekly, and monthly tasks to optimize database footprint
+    await performDbCleanup(client);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

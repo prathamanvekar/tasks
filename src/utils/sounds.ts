@@ -11,6 +11,56 @@ function getAudioContext(): AudioContext {
   return audioCtx;
 }
 
+// Warm up the context by playing a sub-millisecond silent buffer
+function warmUpContext(ctx: AudioContext) {
+  try {
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+  } catch {
+    // Ignore
+  }
+}
+
+// Proactive user interaction handler to resume AudioContext with zero latency
+function handleUserInteraction() {
+  try {
+    const ctx = getAudioContext();
+    if (ctx) {
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(() => {
+          warmUpContext(ctx);
+          if (ctx.state === 'running') {
+            removeInteractionListeners();
+          }
+        });
+      } else if (ctx.state === 'running') {
+        warmUpContext(ctx);
+        removeInteractionListeners();
+      }
+    }
+  } catch {
+    // Ignore issues prior to first interaction
+  }
+}
+
+function removeInteractionListeners() {
+  const events = ['click', 'keydown', 'pointerdown', 'touchstart'];
+  events.forEach(e => {
+    document.removeEventListener(e, handleUserInteraction, { capture: true });
+  });
+}
+
+// Attach listeners immediately on client-side loading
+if (typeof window !== 'undefined') {
+  const events = ['click', 'keydown', 'pointerdown', 'touchstart'];
+  events.forEach(e => {
+    document.addEventListener(e, handleUserInteraction, { capture: true, passive: true });
+  });
+}
+
 // Helper to generate a scratch sound (pencil on paper) using bandpass filtered white noise
 export function playScratchSound() {
   try {

@@ -134,6 +134,147 @@ function calculateStreakStats(rows: any[], targetDateStr: string): StreakStats {
   return { streak, maxStreak, completionRate };
 }
 
+// Helper to calculate weekly streaks
+interface WeeklyStreakStats {
+  streak: number;
+  maxStreak: number;
+}
+
+function calculateWeeklyStreakStats(rows: any[], targetWeekKey: string): WeeklyStreakStats {
+  const weeklyMap = new Map<string, boolean>();
+  rows.forEach((row) => {
+    const isCompleted =
+      Boolean(row.is_saved) &&
+      row.oss1 && row.oss1.trim() !== '' &&
+      row.oss2 && row.oss2.trim() !== '' &&
+      row.project_repo && row.project_repo.trim() !== '' &&
+      row.codechef && row.codechef.trim() !== '' &&
+      row.codeforces && row.codeforces.trim() !== '' &&
+      row.leetcode && row.leetcode.trim() !== '' &&
+      row.hackathon && row.hackathon.trim() !== '' &&
+      row.ctf && row.ctf.trim() !== '' &&
+      row.revision && row.revision.trim() !== '';
+    weeklyMap.set(row.week_key, isCompleted);
+  });
+
+  let maxStreak = 0;
+  let currentRun = 0;
+  const sortedWeeks = Array.from(weeklyMap.keys()).sort();
+  sortedWeeks.forEach((wKey) => {
+    if (weeklyMap.get(wKey)) {
+      currentRun++;
+      if (currentRun > maxStreak) maxStreak = currentRun;
+    } else {
+      currentRun = 0;
+    }
+  });
+
+  let streak = 0;
+  const currentWeekDone = weeklyMap.get(targetWeekKey) || false;
+
+  function getOffsetWeekKey(wKey: string, offset: number): string {
+    const [yearStr, weekStr] = wKey.split('-w');
+    const year = parseInt(yearStr);
+    const week = parseInt(weekStr);
+    const date = new Date(year, 0, 4);
+    date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+    date.setDate(date.getDate() + (week - 1 + offset) * 7);
+    return getWeekString(date);
+  }
+
+  const prevWeekKey = getOffsetWeekKey(targetWeekKey, -1);
+  const prevWeekDone = weeklyMap.get(prevWeekKey) || false;
+  const canHaveStreak = currentWeekDone || prevWeekDone;
+
+  if (canHaveStreak) {
+    for (let i = 0; i < 52; i++) {
+      const keyStr = getOffsetWeekKey(targetWeekKey, -i);
+      const isDone = weeklyMap.get(keyStr) || false;
+      if (isDone) {
+        if (currentWeekDone || i > 0) {
+          streak++;
+        }
+      } else {
+        if (i > 0 || currentWeekDone) {
+          break;
+        }
+      }
+    }
+  }
+
+  return { streak, maxStreak };
+}
+
+// Helper to calculate monthly streaks
+interface MonthlyStreakStats {
+  streak: number;
+  maxStreak: number;
+}
+
+function calculateMonthlyStreakStats(rows: any[], targetMonthKey: string): MonthlyStreakStats {
+  const monthlyMap = new Map<string, boolean>();
+  rows.forEach((row) => {
+    const isCompleted =
+      Boolean(row.is_saved) &&
+      row.blog1 && row.blog1.trim() !== '' &&
+      row.blog2 && row.blog2.trim() !== '' &&
+      row.lang_commit && row.lang_commit.trim() !== '';
+    monthlyMap.set(row.month_key, isCompleted);
+  });
+
+  let maxStreak = 0;
+  let currentRun = 0;
+  const sortedMonths = Array.from(monthlyMap.keys()).sort();
+  sortedMonths.forEach((mKey) => {
+    if (monthlyMap.get(mKey)) {
+      currentRun++;
+      if (currentRun > maxStreak) maxStreak = currentRun;
+    } else {
+      currentRun = 0;
+    }
+  });
+
+  let streak = 0;
+  const currentMonthDone = monthlyMap.get(targetMonthKey) || false;
+
+  function getOffsetMonthKey(mKey: string, offset: number): string {
+    const [yearStr, monthStr] = mKey.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+    const date = new Date(year, month - 1 + offset, 15);
+    return getMonthString(date);
+  }
+
+  const prevMonthKey = getOffsetMonthKey(targetMonthKey, -1);
+  const prevMonthDone = monthlyMap.get(prevMonthKey) || false;
+  const canHaveStreak = currentMonthDone || prevMonthDone;
+
+  if (canHaveStreak) {
+    for (let i = 0; i < 24; i++) {
+      const keyStr = getOffsetMonthKey(targetMonthKey, -i);
+      const isDone = monthlyMap.get(keyStr) || false;
+      if (isDone) {
+        if (currentMonthDone || i > 0) {
+          streak++;
+        }
+      } else {
+        if (i > 0 || currentMonthDone) {
+          break;
+        }
+      }
+    }
+  }
+
+  return { streak, maxStreak };
+}
+
+// Formatting helper for links and __NOT_DONE__
+function formatLinkOrValue(val: string | null | undefined): string {
+  if (!val || val.trim() === '') return 'none';
+  if (val === '__NOT_DONE__') return '<span style="color: #ff5555; text-decoration: line-through; font-style: italic;">not done</span>';
+  return val;
+}
+
 // HTML Email Layout Generator (Theme Cohesive, Strictly Lowercase, Brutalist Minimal)
 function wrapEmailHtml(contentHtml: string, title: string): string {
   return `
@@ -234,6 +375,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const allDailyResult = await client.execute('SELECT * FROM daily_tasks');
       const stats = calculateStreakStats(allDailyResult.rows, dateKey);
 
+      // Fetch weekly and monthly to calculate their streaks
+      const allWeeklyResult = await client.execute('SELECT * FROM weekly_tasks');
+      const weekKey = getWeekString(today);
+      const weeklyStats = calculateWeeklyStreakStats(allWeeklyResult.rows, weekKey);
+
+      const allMonthlyResult = await client.execute('SELECT * FROM monthly_tasks');
+      const monthKey = getMonthString(today);
+      const monthlyStats = calculateMonthlyStreakStats(allMonthlyResult.rows, monthKey);
+
       const task = dateResult.rows[0] || {
         bootdev: 0,
         neetcode: 0,
@@ -263,15 +413,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           <h4 style="font-size: 12px; font-weight: bold; color: #ffffff; margin: 0 0 12px 0;">[ system stats ]</h4>
           <table border="0" cellpadding="0" cellspacing="0" width="100%">
             <tr>
-              <td style="padding: 6px 0; font-size: 12px;">current streak:</td>
-              <td style="text-align: right; font-weight: bold; color: #ffffff; font-size: 12px;">${stats.streak} days</td>
+              <td style="padding: 6px 0; font-size: 12px; color: #888888;">daily streak:</td>
+              <td style="text-align: right; font-weight: bold; color: #ffffff; font-size: 12px;">${stats.streak}d (max: ${stats.maxStreak}d)</td>
             </tr>
             <tr>
-              <td style="padding: 6px 0; font-size: 12px;">personal record:</td>
-              <td style="text-align: right; font-weight: bold; color: #ffffff; font-size: 12px;">${stats.maxStreak} days</td>
+              <td style="padding: 6px 0; font-size: 12px; color: #888888;">weekly streak:</td>
+              <td style="text-align: right; font-weight: bold; color: #ffffff; font-size: 12px;">${weeklyStats.streak}w (max: ${weeklyStats.maxStreak}w)</td>
             </tr>
             <tr>
-              <td style="padding: 6px 0; font-size: 12px;">completion index:</td>
+              <td style="padding: 6px 0; font-size: 12px; color: #888888;">monthly streak:</td>
+              <td style="text-align: right; font-weight: bold; color: #ffffff; font-size: 12px;">${monthlyStats.streak}m (max: ${monthlyStats.maxStreak}m)</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-size: 12px; color: #888888;">completion index:</td>
               <td style="text-align: right; font-weight: bold; color: #4fc3f7; font-size: 12px;">${stats.completionRate}% (past 30 days)</td>
             </tr>
           </table>
@@ -296,52 +450,76 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
 
+      // Calculate filled vs not done
+      let filledCount = 0;
+      let notDoneCount = 0;
+      const weeklyFields = [
+        report.oss1, report.oss2, report.project_repo,
+        report.codechef, report.codeforces, report.leetcode,
+        report.hackathon, report.ctf, report.revision
+      ];
+      weeklyFields.forEach(val => {
+        if (!val) return;
+        if (val === '__NOT_DONE__') {
+          notDoneCount++;
+        } else if (val.trim() !== '') {
+          filledCount++;
+        }
+      });
+
+      const allWeeklyResult = await client.execute('SELECT * FROM weekly_tasks');
+      const weeklyStats = calculateWeeklyStreakStats(allWeeklyResult.rows, weekKey);
+
       subject = `tasks: weekly log [ ${weekKey} ]`;
       emailHtml = wrapEmailHtml(`
         <h3 style="font-size: 14px; font-weight: bold; color: #ffffff; border-bottom: 1px dotted #ff5555; padding-bottom: 6px; margin: 0 0 16px 0;">[ report // weekly logs // ${weekRange} ]</h3>
         
+        <div style="margin-bottom: 16px; font-size: 12px; font-weight: bold; color: #ffffff;">
+          stats: ${filledCount} filled, ${notDoneCount} not done (streak: ${weeklyStats.streak}w, max: ${weeklyStats.maxStreak}w)
+        </div>
+
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ open source contributions ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            1. ${report.oss1 || 'none'}<br>
-            2. ${report.oss2 || 'none'}
+            1. ${formatLinkOrValue(report.oss1)}<br>
+            2. ${formatLinkOrValue(report.oss2)}
           </div>
         </div>
 
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ neovim coding project ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            repo: ${report.project_repo || 'none'}
+            repo: ${formatLinkOrValue(report.project_repo)}
           </div>
         </div>
 
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ competitive programming contests ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            codechef: ${report.codechef || 'none'}<br>
-            codeforces: ${report.codeforces || 'none'}<br>
-            leetcode: ${report.leetcode || 'none'}
+            codechef: ${formatLinkOrValue(report.codechef)}<br>
+            codeforces: ${formatLinkOrValue(report.codeforces)}<br>
+            leetcode: ${formatLinkOrValue(report.leetcode)}
           </div>
         </div>
 
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ hackathons & contests ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            details: ${report.hackathon || 'none'}
+            details: ${formatLinkOrValue(report.hackathon)}
           </div>
         </div>
 
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ ctf solve logs ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            details: ${report.ctf || 'none'}
+            details: ${formatLinkOrValue(report.ctf)}
           </div>
         </div>
 
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ weekly revision ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            topics: ${report.revision || 'none'}
+            topics: ${formatLinkOrValue(report.revision)}
           </div>
         </div>
       `, subject);
@@ -364,22 +542,42 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
 
+      // Calculate filled vs not done
+      let filledCount = 0;
+      let notDoneCount = 0;
+      const monthlyFields = [report.blog1, report.blog2, report.lang_commit];
+      monthlyFields.forEach(val => {
+        if (!val) return;
+        if (val === '__NOT_DONE__') {
+          notDoneCount++;
+        } else if (val.trim() !== '') {
+          filledCount++;
+        }
+      });
+
+      const allMonthlyResult = await client.execute('SELECT * FROM monthly_tasks');
+      const monthlyStats = calculateMonthlyStreakStats(allMonthlyResult.rows, monthKey);
+
       subject = `tasks: monthly log [ ${monthKey} ]`;
       emailHtml = wrapEmailHtml(`
         <h3 style="font-size: 14px; font-weight: bold; color: #ffffff; border-bottom: 1px dotted #ff5555; padding-bottom: 6px; margin: 0 0 16px 0;">[ report // monthly milestones // ${printableMonth} ]</h3>
         
+        <div style="margin-bottom: 16px; font-size: 12px; font-weight: bold; color: #ffffff;">
+          stats: ${filledCount} filled, ${notDoneCount} not done (streak: ${monthlyStats.streak}m, max: ${monthlyStats.maxStreak}m)
+        </div>
+
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ written publications ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            1. ${report.blog1 || 'none'}<br>
-            2. ${report.blog2 || 'none'}
+            1. ${formatLinkOrValue(report.blog1)}<br>
+            2. ${formatLinkOrValue(report.blog2)}
           </div>
         </div>
 
         <div style="margin-bottom: 16px;">
           <h4 style="color: #ffffff; font-size: 12px; margin: 0 0 6px 0;">[ programming language / compiler feature ]</h4>
           <div style="background-color: #1f1f1f; border: 1px solid #2e2e2e; padding: 10px; font-size: 11px; margin-bottom: 12px;">
-            commit / pr: ${report.lang_commit || 'none'}
+            commit / pr: ${formatLinkOrValue(report.lang_commit)}
           </div>
         </div>
       `, subject);

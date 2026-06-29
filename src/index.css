@@ -91,7 +91,7 @@ h2 {
   width: 100%;
   max-width: 812px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 20px 8px;
   box-sizing: border-box;
 }
 
@@ -1071,4 +1071,14 @@ h2 {
 .pomo-hamster-container:not(.timer-running) .hamster__tail,
 .pomo-hamster-container:not(.timer-running) .spoke {
   animation-play-state: paused;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
 }

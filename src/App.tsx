@@ -543,6 +543,14 @@ export default function App() {
     }
   }, []);
 
+  // Scroll active tab button into view on mount or when activeTab changes
+  useEffect(() => {
+    const activeEl = document.querySelector(`nav button[data-tab="${activeTab}"]`);
+    if (activeEl) {
+      activeEl.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+    }
+  }, [activeTab]);
+
   // Circular View Transition Theme Toggler
   const handleThemeToggle = (e: React.MouseEvent<HTMLInputElement>) => {
     const doc = document as any;
@@ -1453,16 +1461,20 @@ export default function App() {
         </header>
 
         {/* CENTERED TABS NAVIGATION */}
-        <nav className="flex justify-center border-b border-[var(--border)] mb-10 relative">
+        <nav className="flex items-center justify-start md:justify-center overflow-x-auto whitespace-nowrap no-scrollbar border-b border-[var(--border)] mb-10 relative w-full scroll-smooth select-none px-4 md:px-0">
           {TABS_ORDER.map((tab) => {
             const isActive = activeTab === tab;
             return (
               <Magnetic key={tab}>
                 <button
                   key={tab}
-                  onClick={() => handleTabChange(tab)}
+                  data-tab={tab}
+                  onClick={(e) => {
+                    handleTabChange(tab);
+                    e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                  }}
                   onMouseEnter={handleMouseEnter}
-                  className={`relative px-6 py-3 text-sm font-semibold tracking-wider transition-colors duration-200 focus:outline-none lowercase cursor-pointer ${
+                  className={`relative px-4 md:px-6 py-3 text-sm font-semibold tracking-wider transition-colors duration-200 focus:outline-none lowercase cursor-pointer flex-shrink-0 ${
                     isActive ? 'text-[var(--text-h)]' : 'text-[var(--text-muted)] hover:text-[var(--text-h)]'
                   }`}
                 >
@@ -2428,7 +2440,7 @@ export default function App() {
                     <div className="grid grid-cols-3 gap-2.5 sm:gap-4 md:gap-6">
                       {/* Card 1: Daily Current Streak */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">current streak</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-emerald-500 flex-shrink-0">[ active ]</span>
                         </div>
@@ -2440,7 +2452,7 @@ export default function App() {
 
                       {/* Card 2: Daily Max Streak */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">personal record</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ max ]</span>
                         </div>
@@ -2452,7 +2464,7 @@ export default function App() {
 
                       {/* Card 3: Daily Completion Rate */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">completion rate</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ 30d ]</span>
                         </div>
@@ -2470,7 +2482,7 @@ export default function App() {
                     <div className="grid grid-cols-3 gap-2.5 sm:gap-4 md:gap-6">
                       {/* Card 1: Weekly Current Streak */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">weekly streak</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--go-blue)] flex-shrink-0">[ active ]</span>
                         </div>
@@ -2482,7 +2494,7 @@ export default function App() {
 
                       {/* Card 2: Weekly Personal Record */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">weekly pr</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ max ]</span>
                         </div>
@@ -2494,7 +2506,7 @@ export default function App() {
 
                       {/* Card 3: Weekly Completion Rate */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">completion rate</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ 11w ]</span>
                         </div>
@@ -2512,7 +2524,7 @@ export default function App() {
                     <div className="grid grid-cols-3 gap-2.5 sm:gap-4 md:gap-6">
                       {/* Card 1: Monthly Current Streak */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">monthly streak</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ active ]</span>
                         </div>
@@ -2524,7 +2536,7 @@ export default function App() {
 
                       {/* Card 2: Monthly Personal Record */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">monthly pr</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ max ]</span>
                         </div>
@@ -2536,7 +2548,7 @@ export default function App() {
 
                       {/* Card 3: Monthly Completion Rate */}
                       <motion.div variants={itemVariants} className="brutal-hover-card flex flex-col justify-between h-28 md:h-32 !p-2.5 sm:!p-4 md:!p-5">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[var(--border)] pb-1.5 md:pb-2 mb-1.5 md:mb-2 gap-0.5 sm:gap-2">
                           <span className="text-[10px] sm:text-2xs font-bold font-mono text-[var(--text-h)] lowercase truncate">completion rate</span>
                           <span className="text-[9px] sm:text-3xs font-mono text-[var(--accent)] flex-shrink-0">[ 11m ]</span>
                         </div>

@@ -1,8 +1,9 @@
 import { connect, Connection } from '@tursodatabase/serverless';
 
 export interface Env {
-  TURSO_URL: string;
-  TURSO_AUTH_TOKEN: string;
+  TURSO_URL?: string;
+  TURSO_DATABASE_URL?: string;
+  TURSO_AUTH_TOKEN?: string;
   API_SECRET?: string;
   CRON_SECRET?: string;
   RESEND_API_KEY?: string;
@@ -12,12 +13,15 @@ export interface Env {
  * creates and returns a turso client instance.
  */
 export function getDbClient(env: Env): Connection {
-  if (!env.TURSO_URL || !env.TURSO_AUTH_TOKEN) {
-    throw new Error('TURSO_URL and TURSO_AUTH_TOKEN environment variables must be set.');
+  const url = env.TURSO_URL || env.TURSO_DATABASE_URL;
+  const token = env.TURSO_AUTH_TOKEN;
+
+  if (!url || !token) {
+    throw new Error('TURSO_URL (or TURSO_DATABASE_URL) and TURSO_AUTH_TOKEN environment variables must be set.');
   }
   return connect({
-    url: env.TURSO_URL,
-    authToken: env.TURSO_AUTH_TOKEN,
+    url: url,
+    authToken: token,
   });
 }
 
